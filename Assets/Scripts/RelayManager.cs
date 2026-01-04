@@ -1,0 +1,102 @@
+using TMPro;
+using Unity.Services.Core;
+using Unity.Services.Authentication;
+using UnityEngine;
+using System.Threading.Tasks;
+using Unity.Netcode;
+using Unity.Netcode.Transports.UTP;
+using Unity.Services.Relay;
+using Unity.Services.Relay.Models;
+
+public class RelayManager : MonoBehaviour
+{
+    [SerializeField] private TextMeshProUGUI textMeshProUGUI;
+    [SerializeField] private TMP_InputField _inputField;
+    
+    [SerializeField] private int maxPlayers = 4;
+
+    private async void Start()
+    {
+        if (UnityServices.State != ServicesInitializationState.Initialized)
+            await UnityServices.InitializeAsync();
+
+        await AuthenticationService.Instance.SignInAnonymouslyAsync();
+    }
+
+    public async void StartRelay()
+    {
+        try
+        {
+            string joinCode = await StartHostWithRelay(maxPlayers);
+            textMeshProUGUI.text = $"{joinCode}";
+        }
+        catch (RelayServiceException e)
+        {
+            Debug.LogError($"Ошибка создания Relay: {e.Message}");
+            textMeshProUGUI.text = "Ошибка создания комнаты";
+        }
+    }
+
+    public async void JoinRelay()
+    {
+        try
+        {
+            bool success = await StartClientWithRelay(_inputField.text.Trim().ToUpper());
+            textMeshProUGUI.text = success ? "Подключение..." : "Ошибка подключения";
+        }
+        catch (RelayServiceException e)
+        {
+            Debug.LogError($"Ошибка подключения к Relay: {e.Message}");
+            textMeshProUGUI.text = "Неверный код или ошибка подключения";
+        }
+    }
+
+    public async Task<string> StartHostWithRelay(int maxConnections)
+    {
+        // Создание выделения (allocation) на сервере Relay
+        Allocation allocation = await RelayService.Instance.CreateAllocationAsync(maxConnections);
+        
+        // Получение кода для присоединения
+        string joinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
+        
+        // Настройка транспорта Unity для использования Relay
+        UnityTransport transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
+        transport.SetHostRelayData(
+            allocation.RelayServer.IpV4,
+            (ushort)allocation.RelayServer.Port,
+            allocation.AllocationIdBytes,
+            allocation.Key,
+            allocation.ConnectionData
+        );
+        
+        // Запуск хоста
+        bool started = NetworkManager.Singleton.StartHost();
+        return started ? joinCode : null;
+    }
+
+    public async Task<bool> StartClientWithRelay(string joinCode)
+    {
+        if (string.IsNullOrEmpty(joinCode))
+        {
+            Debug.LogError("Join code is empty");
+            return false;
+        }
+
+        // Присоединение к выделению по коду
+        JoinAllocation allocation = await RelayService.Instance.JoinAllocationAsync(joinCode);
+        
+        // Настройка транспорта Unity для клиента
+        UnityTransport transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
+        transport.SetClientRelayData(
+            allocation.RelayServer.IpV4,
+            (ushort)allocation.RelayServer.Port,
+            allocation.AllocationIdBytes,
+            allocation.Key,
+            allocation.ConnectionData,
+            allocation.HostConnectionData
+        );
+        
+        // Запуск клиента
+        return NetworkManager.Singleton.StartClient();
+    }
+}
