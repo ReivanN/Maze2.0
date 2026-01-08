@@ -127,7 +127,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 1917870199
+  GlobalObjectIdHash: 2779296241
   InScenePlacedSourceGlobalObjectIdHash: 0
   DeferredDespawnTick: 0
   Ownership: 1
@@ -183,7 +183,7 @@ MonoBehaviour:
   shakeDuration: 3
   fallDelay: 0.2
   respawnDelay: 15
-  shakeIntensity: 0.03
+  shakeIntensity: 0.1
   triggerColliderObject: {fileID: 3429641943393886632}
 --- !u!1 &3429641943393886632
 GameObject:
