@@ -14,7 +14,6 @@ public class DungeonProgressManager : NetworkBehaviour
     [SerializeField] private GameObject victoryEffectPrefab;
     [SerializeField] private AudioClip victorySound;
     [SerializeField] private Material endPointActiveMaterial;
-    
     [Header("UI")]
     [SerializeField] private TextMeshProUGUI progressText;
     
@@ -177,7 +176,7 @@ public class DungeonProgressManager : NetworkBehaviour
         // Генерируем новый лабиринт
         if (dungeonGenerator != null)
         {
-            dungeonGenerator.RegenerateDungeonServerRpc();
+            //dungeonGenerator.RegenerateDungeonServerRpc();
         }
         else
         {

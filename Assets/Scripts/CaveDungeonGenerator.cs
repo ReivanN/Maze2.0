@@ -4,92 +4,78 @@ using Unity.Netcode;
 
 public class CaveDungeonGenerator : NetworkBehaviour
 {
-    [Header("Размер лабиринта (в клетках)")]
+    [Header("Размер лабиринта")]
     public int width = 21;
     public int height = 21;
-
-    [Header("Размер клетки в Unity")]
     public float cellSize = 2f;
 
-    [Header("Префабы (NetworkObject)")]
+    [Header("Префабы")]
     public GameObject floorPrefab;
     public GameObject wallPrefab;
     public GameObject startPrefab;
     public GameObject endPrefab;
-    public GameObject fallingPlatformPrefab;
+    public GameObject doorPrefab;
+    public GameObject buttonPrefab;
 
     [Header("Player")]
     public float playerHeightOffset = 1f;
 
-    [Header("Pool Settings")]
-    public int initialPoolSize = 50;
-    public bool usePooling = true;
-    
-    [Header("Прогресс")]
-    public DungeonProgressManager progressManager;
-
     private int[,] map;
-    private HashSet<Vector2Int> fallingPlatformCells = new HashSet<Vector2Int>();
-    private Vector2Int startCell;
-    private Vector2Int endCell;
-    
-    private List<GameObject> spawnedObjects = new List<GameObject>();
 
-    // ===================== NETWORK =====================
+    private Vector2Int startA;
+    private Vector2Int startB;
+    private Vector2Int exitCell;
+
+private List<GameObject> spawnedObjects = new List<GameObject>();
+
+    // ================= NETWORK =================
 
     public override void OnNetworkSpawn()
     {
-        if (IsServer)
-        {
-            // Инициализируем пул перед генерацией
-            if (usePooling)
-            {
-                NetworkObjectPoolManager.Instance.InitializePools(
-                    floorPrefab, wallPrefab, startPrefab, endPrefab, 
-                    initialPoolSize
-                );
-            }
-            
-            Generate();
-            Build();
-            PositionAllPlayers();
-        }
+        if (!IsServer) return;
+
+        Generate();
+        Build();
+        PositionPlayers();
     }
 
-    public override void OnNetworkDespawn()
-    {
-        // Очищаем все объекты при деспавне
-        Cleanup();
-    }
-
-    // ===================== GENERATION =====================
+    // ================= GENERATION =================
 
     void Generate()
     {
         map = new int[width, height];
 
+        // Всё — стены
         for (int x = 0; x < width; x++)
             for (int y = 0; y < height; y++)
                 map[x, y] = 0;
 
-        startCell = new Vector2Int(1, 1);
-        Carve(startCell.x, startCell.y);
+        int centerX = width / 2;
+        int centerY = height / 2;
 
-        endCell = FindFarthestCell(startCell);
+        // Старты
+        startA = new Vector2Int(1, centerY);
+        startB = new Vector2Int(width - 2, centerY);
+
+        // Левая и правая генерация отдельно
+        CarveSide(startA.x, startA.y, 1, centerX - 2);
+        CarveSide(startB.x, startB.y, centerX + 2, width - 2);
+
+        // Центральная зона
+        CreateCentralZone(centerX, centerY);
+
+        exitCell = new Vector2Int(centerX, centerY);
     }
 
-    void Carve(int x, int y)
+    void CarveSide(int x, int y, int minX, int maxX)
     {
         map[x, y] = 1;
 
         Vector2Int[] dirs =
         {
-            Vector2Int.up,
-            Vector2Int.down,
-            Vector2Int.left,
-            Vector2Int.right
+            Vector2Int.up, Vector2Int.down,
+            Vector2Int.left, Vector2Int.right
         };
-
         Shuffle(dirs);
 
         foreach (var d in dirs)
@@ -97,11 +83,30 @@ public class CaveDungeonGenerator : NetworkBehaviour
             int nx = x + d.x * 2;
             int ny = y + d.y * 2;
 
-            if (IsInside(nx, ny) && map[nx, ny] == 0)
-            {
-                map[x + d.x, y + d.y] = 1;
-                Carve(nx, ny);
-            }
+            if (nx < minX || nx > maxX) continue;
+            if (!IsInside(nx, ny)) continue;
+            if (map[nx, ny] != 0) continue;
+
+            map[x + d.x, y + d.y] = 1;
+            CarveSide(nx, ny, minX, maxX);
+        }
+    }
+
+    void CreateCentralZone(int cx, int cy)
+    {
+        // Центральный проход 3x3
+        for (int x = cx - 1; x <= cx + 1; x++)
+            for (int y = cy - 1; y <= cy + 1; y++)
+                map[x, y] = 1;
+
+        // Выход — строго одна клетка
+        map[cx, cy] = 2;
+
+        // Стена по центру
+        for (int y = 0; y < height; y++)
+        {
+            if (y >= cy - 1 && y <= cy + 1) continue;
+            map[cx, y] = 0;
         }
     }
 
@@ -110,231 +115,84 @@ public class CaveDungeonGenerator : NetworkBehaviour
         return x > 0 && y > 0 && x < width - 1 && y < height - 1;
     }
 
-    // ===================== START / END =====================
-
-    Vector2Int FindFarthestCell(Vector2Int from)
-    {
-        Queue<Vector2Int> queue = new Queue<Vector2Int>();
-        Dictionary<Vector2Int, int> distances = new Dictionary<Vector2Int, int>();
-
-        queue.Enqueue(from);
-        distances[from] = 0;
-
-        Vector2Int farthest = from;
-
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-
-            foreach (var d in Directions)
-            {
-                Vector2Int next = current + d;
-
-                if (IsInside(next.x, next.y) &&
-                    map[next.x, next.y] == 1 &&
-                    !distances.ContainsKey(next))
-                {
-                    distances[next] = distances[current] + 1;
-                    queue.Enqueue(next);
-
-                    if (distances[next] > distances[farthest])
-                        farthest = next;
-                }
-            }
-        }
-
-        return farthest;
-    }
-
-    static readonly Vector2Int[] Directions =
-    {
-        Vector2Int.up,
-        Vector2Int.down,
-        Vector2Int.left,
-        Vector2Int.right
-    };
-
-    // ===================== BUILD (SERVER ONLY) =====================
+    // ================= BUILD =================
 
     void Build()
     {
-        // Очищаем предыдущие объекты
         Cleanup();
-        fallingPlatformCells.Clear();
 
-        // ПЕРВОЕ: Спавним падающие платформы
-        SpawnFallingPlatforms();
-
-        // ВТОРОЕ: Спавним обычные полы и стены, исключая клетки с падающими платформами
         for (int x = 0; x < width; x++)
         {
             for (int y = 0; y < height; y++)
             {
-                Vector3 pos = new Vector3(x * cellSize, 0, y * cellSize);
-                var cell = new Vector2Int(x, y);
+                Vector3 pos = CellToWorld(x, y);
 
-                // Пропускаем клетки с падающими платформами
-                if (fallingPlatformCells.Contains(cell))
-                    continue;
-
-                // Проверяем, что это пол (не стена)
-                if (map[x, y] == 1)
-                {
-                    // Спавним обычный пол
-                    SpawnNetwork(floorPrefab, pos);
-                }
+                if (map[x, y] == 0)
+                    Spawn(wallPrefab, pos);
                 else
-                {
-                    // Спавним стену
-                    SpawnNetwork(wallPrefab, pos);
-                }
+                    Spawn(floorPrefab, pos);
             }
         }
 
-        // ТРЕТЬЕ: Спавним старт и финиш (проверяем конфликты)
-        if (!fallingPlatformCells.Contains(startCell))
-        {
-            SpawnNetwork(startPrefab, CellToWorld(startCell));
-        }
-        else
-        {
-            // Если старт попал на падающую платформу, ищем ближайшую безопасную клетку
-            var safeStart = FindNearestSafeCell(startCell);
-            startCell = safeStart;
-            SpawnNetwork(startPrefab, CellToWorld(safeStart));
-        }
+        Spawn(startPrefab, CellToWorld(startA));
+        Spawn(startPrefab, CellToWorld(startB));
+        Spawn(endPrefab, CellToWorld(exitCell));
 
-        if (!fallingPlatformCells.Contains(endCell))
+        PlaceDoorsAndButtons();
+    }
+
+    // ================= DOORS & BUTTONS =================
+
+    void PlaceDoorsAndButtons()
+    {
+        Vector2Int doorA = FindRandomCell(true);
+        Vector2Int buttonA = FindRandomCell(false);
+
+        Vector2Int doorB = FindRandomCell(false);
+        Vector2Int buttonB = FindRandomCell(true);
+
+        Spawn(doorPrefab, CellToWorld(doorA));
+        Spawn(buttonPrefab, CellToWorld(buttonA));
+
+        Spawn(doorPrefab, CellToWorld(doorB));
+        Spawn(buttonPrefab, CellToWorld(buttonB));
+    }
+
+    Vector2Int FindRandomCell(bool left)
+    {
+        List<Vector2Int> cells = new();
+        int cx = width / 2;
+
+        for (int x = left ? 1 : cx + 2; x < (left ? cx - 1 : width - 1); x++)
+            for (int y = 1; y < height - 1; y++)
+                if (map[x, y] == 1)
+                    cells.Add(new Vector2Int(x, y));
+
+        return cells[Random.Range(0, cells.Count)];
+    }
+
+    // ================= PLAYERS =================
+
+    void PositionPlayers()
+    {
+        int i = 0;
+        foreach (var c in NetworkManager.Singleton.ConnectedClientsList)
         {
-            SpawnNetwork(endPrefab, CellToWorld(endCell));
-        }
-        else
-        {
-            // Если финиш попал на падающую платформу, ищем ближайшую безопасную клетку
-            var safeEnd = FindNearestSafeCell(endCell);
-            endCell = safeEnd;
-            SpawnNetwork(endPrefab, CellToWorld(safeEnd));
-        }
-        
-        if (progressManager != null)
-        {
-            // Сообщаем менеджеру прогресса о новой конечной точке
-            progressManager.Invoke("FindEndZone", 0.1f);
+            var p = c.PlayerObject;
+            if (!p) continue;
+
+            Vector3 pos = (i == 0 ? CellToWorld(startA) : CellToWorld(startB));
+            pos.y = playerHeightOffset;
+            p.transform.position = pos;
+            i++;
         }
     }
 
-    void SpawnFallingPlatforms()
+    // ================= UTILS =================
+
+    Vector3 CellToWorld(int x, int y)
     {
-        if (fallingPlatformPrefab == null) return;
-
-        int chainCount = Random.Range(3, 6); // от 3 до 5 подряд
-        bool horizontal = Random.value > 0.5f;
-
-        // Пытаемся найти подходящее место
-        for (int attempt = 0; attempt < 50; attempt++)
-        {
-            int x = Random.Range(1, width - 1);
-            int y = Random.Range(1, height - 1);
-
-            bool valid = true;
-            List<Vector2Int> potentialCells = new List<Vector2Int>();
-
-            // Проверяем всю цепочку
-            for (int i = 0; i < chainCount; i++)
-            {
-                int cx = horizontal ? x + i : x;
-                int cy = horizontal ? y : y + i;
-
-                if (!IsInside(cx, cy) || map[cx, cy] != 1)
-                {
-                    valid = false;
-                    break;
-                }
-
-                potentialCells.Add(new Vector2Int(cx, cy));
-            }
-
-            if (!valid) continue;
-
-            // Спавним подряд
-            for (int i = 0; i < chainCount; i++)
-            {
-                int cx = horizontal ? x + i : x;
-                int cy = horizontal ? y : y + i;
-
-                var cell = new Vector2Int(cx, cy);
-                fallingPlatformCells.Add(cell);
-
-                Vector3 pos = new Vector3(cx * cellSize, 0, cy * cellSize);
-                SpawnNetwork(fallingPlatformPrefab, pos);
-            }
-
-            break;
-        }
-    }
-
-    Vector2Int FindNearestSafeCell(Vector2Int targetCell)
-    {
-        // Поиск ближайшей безопасной клетки (не падающая платформа)
-        Queue<Vector2Int> queue = new Queue<Vector2Int>();
-        HashSet<Vector2Int> visited = new HashSet<Vector2Int>();
-        
-        queue.Enqueue(targetCell);
-        visited.Add(targetCell);
-
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            
-            // Если эта клетка не падающая платформа и это пол - возвращаем
-            if (!fallingPlatformCells.Contains(current) && 
-                IsInside(current.x, current.y) && 
-                map[current.x, current.y] == 1)
-            {
-                return current;
-            }
-
-            // Ищем дальше
-            foreach (var d in Directions)
-            {
-                Vector2Int next = current + d;
-                
-                if (IsInside(next.x, next.y) && 
-                    !visited.Contains(next) && 
-                    map[next.x, next.y] == 1)
-                {
-                    queue.Enqueue(next);
-                    visited.Add(next);
-                }
-            }
-        }
-
-        // Если не нашли безопасную клетку, возвращаем стартовую (1,1)
-        return new Vector2Int(1, 1);
-    }
-
-    void SpawnNetwork(GameObject prefab, Vector3 position)
-    {
-        GameObject obj;
-        
-        if (usePooling && NetworkObjectPoolManager.Instance != null)
-        {
-            // Используем пул
-            obj = NetworkObjectPoolManager.Instance.GetFromPool(prefab, position, Quaternion.identity);
-        }
-        else
-        {
-            // Стандартное создание
-            obj = Instantiate(prefab, position, Quaternion.identity, transform);
-        }
-        
-        var netObj = obj.GetComponent<NetworkObject>();
-        if (!netObj.IsSpawned)
-        {
-            netObj.Spawn();
-        }
-        
-        spawnedObjects.Add(obj);
+        return new Vector3(x * cellSize, 0, y * cellSize);
     }
 
     Vector3 CellToWorld(Vector2Int cell)
@@ -342,118 +200,37 @@ public class CaveDungeonGenerator : NetworkBehaviour
         return new Vector3(cell.x * cellSize, 0, cell.y * cellSize);
     }
 
-    // ===================== PLAYERS =====================
-
-    void PositionAllPlayers()
+    void Spawn(GameObject prefab, Vector3 pos)
     {
-        foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
+        var obj = Instantiate(prefab, pos, Quaternion.identity);
+
+        var netObj = obj.GetComponent<NetworkObject>();
+        if (netObj != null && !netObj.IsSpawned)
         {
-            var playerObject = client.PlayerObject;
-            if (playerObject == null) continue;
-
-            Vector3 spawnPos = CellToWorld(startCell);
-            spawnPos.y = playerHeightOffset;
-
-            playerObject.transform.position = spawnPos;
+            netObj.Spawn();
         }
-    }
 
-    // ===================== CLEANUP =====================
+        spawnedObjects.Add(obj);
+    }
 
     void Cleanup()
     {
-        if (usePooling && NetworkObjectPoolManager.Instance != null)
+        foreach (var o in spawnedObjects)
         {
-            // Возвращаем объекты в пул
-            foreach (var obj in spawnedObjects)
-            {
-                if (obj != null)
-                {
-                    NetworkObjectPoolManager.Instance.ReturnToPool(obj);
-                }
-            }
+            if (!o) continue;
+
+            if (o.TryGetComponent<NetworkObject>(out var netObj) && netObj.IsSpawned)
+                netObj.Despawn();
         }
-        else
-        {
-            // Уничтожаем объекты стандартным способом
-            foreach (var obj in spawnedObjects)
-            {
-                if (obj != null)
-                {
-                    if (obj.TryGetComponent<NetworkObject>(out var netObj))
-                    {
-                        netObj.Despawn();
-                    }
-                    Destroy(obj);
-                }
-            }
-        }
-        
         spawnedObjects.Clear();
     }
 
-    // ===================== UTILITY =====================
-
-    void Shuffle(Vector2Int[] array)
+    void Shuffle(Vector2Int[] arr)
     {
-        for (int i = 0; i < array.Length; i++)
+        for (int i = 0; i < arr.Length; i++)
         {
-            int rnd = Random.Range(0, array.Length);
-            (array[i], array[rnd]) = (array[rnd], array[i]);
+            int r = Random.Range(0, arr.Length);
+            (arr[i], arr[r]) = (arr[r], arr[i]);
         }
-    }
-
-    // ===================== DEBUG VISUALIZATION =====================
-
-    void OnDrawGizmos()
-    {
-        if (map == null) return;
-
-        for (int x = 0; x < width; x++)
-        {
-            for (int y = 0; y < height; y++)
-            {
-                Vector3 pos = new Vector3(x * cellSize, 0, y * cellSize);
-                var cell = new Vector2Int(x, y);
-
-                if (fallingPlatformCells.Contains(cell))
-                {
-                    Gizmos.color = Color.yellow;
-                    Gizmos.DrawWireCube(pos + Vector3.up * 0.5f, Vector3.one * cellSize * 0.8f);
-                }
-                else if (map[x, y] == 1)
-                {
-                    Gizmos.color = Color.green;
-                    Gizmos.DrawWireCube(pos, Vector3.one * cellSize * 0.5f);
-                }
-            }
-        }
-
-        // Старт
-        Gizmos.color = Color.blue;
-        Gizmos.DrawWireCube(CellToWorld(startCell) + Vector3.up, Vector3.one * cellSize * 0.7f);
-        
-        // Финиш
-        Gizmos.color = Color.red;
-        Gizmos.DrawWireCube(CellToWorld(endCell) + Vector3.up, Vector3.one * cellSize * 0.7f);
-    }
-
-    // ===================== PUBLIC API =====================
-
-    [ServerRpc(RequireOwnership = false)]
-    public void RegenerateDungeonServerRpc()
-    {
-        if (!IsServer) return;
-        
-        Generate();
-        Build();
-        PositionAllPlayers();
-    }
-
-    [ClientRpc]
-    public void UpdateDungeonClientRpc()
-    {
-        // Можно добавить визуальные эффекты или логику для клиентов
-        Debug.Log("Данж обновлен на клиенте");
     }
 }

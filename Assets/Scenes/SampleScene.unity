@@ -1108,18 +1108,16 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CaveDungeonGenerator
   ShowTopMostFoldoutHeaderGroup: 1
-  width: 11
-  height: 11
+  width: 21
+  height: 21
   cellSize: 2
   floorPrefab: {fileID: 3315031923594135049, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
   wallPrefab: {fileID: 2274982741432568134, guid: 1703cce7cfc674d2cb4215d79b29e4c2, type: 3}
   startPrefab: {fileID: 1576681098984066033, guid: a255e651e93814629abb19b558ee2d00, type: 3}
   endPrefab: {fileID: 3001096137212784745, guid: 6491783b11ad24e5aab4d4301ff5720d, type: 3}
-  fallingPlatformPrefab: {fileID: 3114152406565306052, guid: cf5b87957e1d74c39a4355570e9f83dc, type: 3}
+  doorPrefab: {fileID: 0}
+  buttonPrefab: {fileID: 0}
   playerHeightOffset: 1
-  initialPoolSize: 100
-  usePooling: 1
-  progressManager: {fileID: 768276833}
 --- !u!114 &768276830
 MonoBehaviour:
   m_ObjectHideFlags: 0
