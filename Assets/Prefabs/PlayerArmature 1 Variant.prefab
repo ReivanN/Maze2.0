@@ -97,13 +97,7 @@ PrefabInstance:
       addedObject: {fileID: 1145192671078380569}
     - targetCorrespondingSourceObject: {fileID: 4416926081852918481, guid: 64dce48905ffd9b4293e595fa6941544, type: 3}
       insertIndex: -1
-      addedObject: {fileID: 3860282672193448963}
-    - targetCorrespondingSourceObject: {fileID: 4416926081852918481, guid: 64dce48905ffd9b4293e595fa6941544, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 2830851641965384879}
-    - targetCorrespondingSourceObject: {fileID: 4416926081852918481, guid: 64dce48905ffd9b4293e595fa6941544, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 8706799844526019235}
+      addedObject: {fileID: 7594049272650650039}
   m_SourcePrefab: {fileID: 100100000, guid: 64dce48905ffd9b4293e595fa6941544, type: 3}
 --- !u!114 &444161165284104955 stripped
 MonoBehaviour:
@@ -133,7 +127,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 2497642878
+  GlobalObjectIdHash: 3035542384
   InScenePlacedSourceGlobalObjectIdHash: 0
   DeferredDespawnTick: 0
   Ownership: 1
@@ -236,7 +230,7 @@ MonoBehaviour:
   ShowTopMostFoldoutHeaderGroup: 1
   TransitionStateInfoList: []
   m_Animator: {fileID: 7434415410278237767}
---- !u!114 &3860282672193448963
+--- !u!114 &7594049272650650039
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -245,37 +239,13 @@ MonoBehaviour:
   m_GameObject: {fileID: 4217521086568236679}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: cdeb22ec294610440902ab89b27d67c8, type: 3}
+  m_Script: {fileID: 11500000, guid: 40b178b5b004c467aaf92880e9d4c99a, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::AbilitySystem
-  crystals: 5
---- !u!114 &2830851641965384879
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 4217521086568236679}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 288797ebbae4bc04d82ca2b01c4663c3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::AbilityInput
-  abilitySystem: {fileID: 3860282672193448963}
---- !u!114 &8706799844526019235
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 4217521086568236679}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 441a045215355c4408fb60d51868b8db, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::AbilityInitializer
-  abilitySystem: {fileID: 3860282672193448963}
-  abilityData: {fileID: 11400000, guid: db22c6b525b06564cbeb918dbd34c30a, type: 2}
+  m_EditorClassIdentifier: '::'
+  ShowTopMostFoldoutHeaderGroup: 1
+  targetRenderer: {fileID: 5361331551509843827}
+  playerOneColor: {r: 1, g: 1, b: 1, a: 1}
+  playerTwoColor: {r: 1, g: 0, b: 0, a: 1}
 --- !u!114 &4217521086568236683 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 4416926081852918493, guid: 64dce48905ffd9b4293e595fa6941544, type: 3}
@@ -298,6 +268,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 26e54e5a728a9234ab24fcf1460ed8a2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!137 &5361331551509843827 stripped
+SkinnedMeshRenderer:
+  m_CorrespondingSourceObject: {fileID: 5597113867290821413, guid: 64dce48905ffd9b4293e595fa6941544, type: 3}
+  m_PrefabInstance: {fileID: 561744663889759318}
+  m_PrefabAsset: {fileID: 0}
 --- !u!95 &7434415410278237767 stripped
 Animator:
   m_CorrespondingSourceObject: {fileID: 6982812146204527121, guid: 64dce48905ffd9b4293e595fa6941544, type: 3}

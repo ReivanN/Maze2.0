@@ -37,6 +37,10 @@ private List<GameObject> spawnedObjects = new List<GameObject>();
         Generate();
         Build();
         PositionPlayers();
+        if (NetworkManager.Singleton.IsServer)
+        {
+            
+        }
     }
 
     // ================= GENERATION =================
@@ -45,26 +49,34 @@ private List<GameObject> spawnedObjects = new List<GameObject>();
     {
         map = new int[width, height];
 
-        // Всё — стены
         for (int x = 0; x < width; x++)
             for (int y = 0; y < height; y++)
                 map[x, y] = 0;
 
-        int centerX = width / 2;
-        int centerY = height / 2;
+        int cx = width / 2;
+        int cy = height / 2;
 
-        // Старты
-        startA = new Vector2Int(1, centerY);
-        startB = new Vector2Int(width - 2, centerY);
+        // --- Центральный вертикальный туннель (1 клетка шириной) ---
+        for (int y = 1; y < height - 1; y++)
+            map[cx, y] = 1;
 
-        // Левая и правая генерация отдельно
-        CarveSide(startA.x, startA.y, 1, centerX - 2);
-        CarveSide(startB.x, startB.y, centerX + 2, width - 2);
+        // --- Выход в центре туннеля ---
+        exitCell = new Vector2Int(cx, cy);
 
-        // Центральная зона
-        CreateCentralZone(centerX, centerY);
+        // --- Двери в туннель (слева и справа) ---
+        Vector2Int doorLeft = new Vector2Int(cx - 1, cy);
+        Vector2Int doorRight = new Vector2Int(cx + 1, cy);
 
-        exitCell = new Vector2Int(centerX, centerY);
+        map[doorLeft.x, doorLeft.y] = 1;
+        map[doorRight.x, doorRight.y] = 1;
+
+        // --- Старты ---
+        startA = new Vector2Int(1, cy);
+        startB = new Vector2Int(width - 2, cy);
+
+        // --- Генерация лабиринтов ---
+        CarveSide(startA.x, startA.y, 1, cx - 2);
+        CarveSide(startB.x, startB.y, cx + 2, width - 2);
     }
 
     void CarveSide(int x, int y, int minX, int maxX)
@@ -73,8 +85,10 @@ private List<GameObject> spawnedObjects = new List<GameObject>();
 
         Vector2Int[] dirs =
         {
-            Vector2Int.up, Vector2Int.down,
-            Vector2Int.left, Vector2Int.right
+            Vector2Int.up,
+            Vector2Int.down,
+            Vector2Int.left,
+            Vector2Int.right
         };
         Shuffle(dirs);
 
@@ -89,24 +103,6 @@ private List<GameObject> spawnedObjects = new List<GameObject>();
 
             map[x + d.x, y + d.y] = 1;
             CarveSide(nx, ny, minX, maxX);
-        }
-    }
-
-    void CreateCentralZone(int cx, int cy)
-    {
-        // Центральный проход 3x3
-        for (int x = cx - 1; x <= cx + 1; x++)
-            for (int y = cy - 1; y <= cy + 1; y++)
-                map[x, y] = 1;
-
-        // Выход — строго одна клетка
-        map[cx, cy] = 2;
-
-        // Стена по центру
-        for (int y = 0; y < height; y++)
-        {
-            if (y >= cy - 1 && y <= cy + 1) continue;
-            map[cx, y] = 0;
         }
     }
 
@@ -138,37 +134,8 @@ private List<GameObject> spawnedObjects = new List<GameObject>();
         Spawn(startPrefab, CellToWorld(startB));
         Spawn(endPrefab, CellToWorld(exitCell));
 
-        PlaceDoorsAndButtons();
-    }
-
-    // ================= DOORS & BUTTONS =================
-
-    void PlaceDoorsAndButtons()
-    {
-        Vector2Int doorA = FindRandomCell(true);
-        Vector2Int buttonA = FindRandomCell(false);
-
-        Vector2Int doorB = FindRandomCell(false);
-        Vector2Int buttonB = FindRandomCell(true);
-
-        Spawn(doorPrefab, CellToWorld(doorA));
-        Spawn(buttonPrefab, CellToWorld(buttonA));
-
-        Spawn(doorPrefab, CellToWorld(doorB));
-        Spawn(buttonPrefab, CellToWorld(buttonB));
-    }
-
-    Vector2Int FindRandomCell(bool left)
-    {
-        List<Vector2Int> cells = new();
-        int cx = width / 2;
-
-        for (int x = left ? 1 : cx + 2; x < (left ? cx - 1 : width - 1); x++)
-            for (int y = 1; y < height - 1; y++)
-                if (map[x, y] == 1)
-                    cells.Add(new Vector2Int(x, y));
-
-        return cells[Random.Range(0, cells.Count)];
+        Spawn(doorPrefab, CellToWorld(new Vector2Int(width / 2 - 1, height / 2)));
+        Spawn(doorPrefab, CellToWorld(new Vector2Int(width / 2 + 1, height / 2)));
     }
 
     // ================= PLAYERS =================
