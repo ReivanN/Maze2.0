@@ -140,19 +140,20 @@ public class CaveDungeonGenerator : NetworkBehaviour
         Spawn(startPrefab, CellToWorld(startB));
         Spawn(endPrefab, CellToWorld(exitCell));
 
-        Spawn(doorPrefab, CellToWorld(new Vector2Int(width / 2 - 1, height / 2)) + Vector3.up * 3f);
-        Spawn(doorPrefab, CellToWorld(new Vector2Int(width / 2 + 1, height / 2)) + Vector3.up * 3f);
-        
-        var leftDoorObj = Spawn(doorPrefab, leftDoorPos);
-        var rightDoorObj = Spawn(doorPrefab, rightDoorPos);
+        // --- Двери ---
+        Vector2Int leftDoorCell = new Vector2Int(width / 2 - 1, height / 2);
+        Vector2Int rightDoorCell = new Vector2Int(width / 2 + 1, height / 2);
 
-        var leftDoor = leftDoorObj.GetComponent<Door>();
-        var rightDoor = rightDoorObj.GetComponent<Door>();
+        GameObject leftDoorObj = Spawn(doorPrefab, CellToWorld(leftDoorCell) + Vector3.up * 3f);
+        GameObject rightDoorObj = Spawn(doorPrefab, CellToWorld(rightDoorCell) + Vector3.up * 3f);
+
+        Door leftDoor = leftDoorObj.GetComponent<Door>();
+        Door rightDoor = rightDoorObj.GetComponent<Door>();
 
         leftDoor.doorColor = DoorColor.Red;
         rightDoor.doorColor = DoorColor.Blue;
-        
-        // --- Поиск тупиков для спавна двух кнопок (левая и правая стороны) ---
+
+        // --- Поиск тупиков для кнопок ---
         List<Vector2Int> leftDeadEnds = new List<Vector2Int>();
         List<Vector2Int> rightDeadEnds = new List<Vector2Int>();
 
@@ -172,12 +173,10 @@ public class CaveDungeonGenerator : NetworkBehaviour
                 if (map[x, y + 1] == 1) neighbours++;
                 if (map[x, y - 1] == 1) neighbours++;
 
-                // Тупик = ровно один проход рядом
                 if (neighbours == 1)
                 {
                     Vector2Int cell = new Vector2Int(x, y);
 
-                    // Исключаем старты и центр
                     if (cell == startA || cell == startB || cell == exitCell)
                         continue;
 
@@ -189,33 +188,24 @@ public class CaveDungeonGenerator : NetworkBehaviour
             }
         }
 
-        if (buttonPrefab != null)
+        if (buttonPrefab != null && leftDeadEnds.Count > 0 && rightDeadEnds.Count > 0)
         {
-            if (leftDeadEnds.Count > 0)
-            {
-                Vector2Int leftButtonPos = leftDeadEnds[Random.Range(0, leftDeadEnds.Count)];
-                Spawn(buttonPrefab, CellToWorld(leftButtonPos) + Vector3.up * 1f);;
-            }
+            Vector2Int leftButtonPos = leftDeadEnds[Random.Range(0, leftDeadEnds.Count)];
+            Vector2Int rightButtonPos = rightDeadEnds[Random.Range(0, rightDeadEnds.Count)];
 
-            if (rightDeadEnds.Count > 0)
-            {
-                Vector2Int rightButtonPos = rightDeadEnds[Random.Range(0, rightDeadEnds.Count)];
-                Spawn(buttonPrefab, CellToWorld(rightButtonPos) + Vector3.up * 1f );
-            }
+            GameObject leftButtonObj = Spawn(buttonPrefab, CellToWorld(leftButtonPos) + Vector3.up * 1f);
+            GameObject rightButtonObj = Spawn(buttonPrefab, CellToWorld(rightButtonPos) + Vector3.up * 1f);
+
+            Button leftButton = leftButtonObj.GetComponent<Button>();
+            Button rightButton = rightButtonObj.GetComponent<Button>();
+
+            // Перекрёстная логика
+            leftButton.buttonColor = DoorColor.Blue;
+            rightButton.buttonColor = DoorColor.Red;
+
+            leftButton.SetTargetDoor(rightDoor);
+            rightButton.SetTargetDoor(leftDoor);
         }
-        
-        var leftButtonObj = Spawn(buttonPrefab, CellToWorld(leftButtonPos));
-        var rightButtonObj = Spawn(buttonPrefab, CellToWorld(rightButtonPos));
-
-        var leftButton = leftButtonObj.GetComponent<Button>();
-        var rightButton = rightButtonObj.GetComponent<Button>();
-
-// 🔥 ПЕРЕКРЁСТНАЯ ЛОГИКА
-        leftButton.buttonColor = DoorColor.Blue;  // левая кнопка открывает правую дверь
-        rightButton.buttonColor = DoorColor.Red;  // правая кнопка открывает левую дверь
-
-        leftButton.SetTargetDoor(rightDoor);
-        rightButton.SetTargetDoor(leftDoor);
     }
 
     // ================= PLAYERS =================
@@ -263,9 +253,9 @@ public class CaveDungeonGenerator : NetworkBehaviour
         return new Vector3(cell.x * cellSize, 0, cell.y * cellSize);
     }
 
-    void Spawn(GameObject prefab, Vector3 pos)
+    GameObject Spawn(GameObject prefab, Vector3 pos)
     {
-        var obj = Instantiate(prefab, pos , Quaternion.identity);
+        var obj = Instantiate(prefab, pos, Quaternion.identity);
 
         var netObj = obj.GetComponent<NetworkObject>();
         if (netObj != null && !netObj.IsSpawned)
@@ -274,6 +264,7 @@ public class CaveDungeonGenerator : NetworkBehaviour
         }
 
         spawnedObjects.Add(obj);
+        return obj;
     }
 
     void Cleanup()

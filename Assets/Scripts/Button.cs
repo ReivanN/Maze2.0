@@ -41,6 +41,7 @@ public class Button: NetworkBehaviour
         if (other.CompareTag("Player") && targetDoor != null)
         {
             targetDoor.OpenDoorServerRpc();
+            Destroy(this.gameObject);
         }
     }
 }
