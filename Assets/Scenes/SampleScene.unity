@@ -1059,63 +1059,6 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 657342587}
   m_CullTransparentMesh: 1
---- !u!1 &664089278
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 664089280}
-  - component: {fileID: 664089279}
-  - component: {fileID: 664089281}
-  m_Layer: 0
-  m_Name: GameObject
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &664089279
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 664089278}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 0a02637f415224c748465c3003b7edb7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: '::'
---- !u!4 &664089280
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 664089278}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 1.01883, y: 0.81057, z: 1.51724}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &664089281
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 664089278}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 593f3a4f149bd4a1d97ef34f80b31df4, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: '::'
 --- !u!1 &768276827
 GameObject:
   m_ObjectHideFlags: 0
@@ -1173,7 +1116,7 @@ MonoBehaviour:
   startPrefab: {fileID: 1576681098984066033, guid: a255e651e93814629abb19b558ee2d00, type: 3}
   endPrefab: {fileID: 3001096137212784745, guid: 6491783b11ad24e5aab4d4301ff5720d, type: 3}
   doorPrefab: {fileID: 3921112516457319970, guid: da2b740b0af3741f693ccfdf91ec93d0, type: 3}
-  buttonPrefab: {fileID: 6494072115748736389, guid: 2cc46308854e64655b24b25a0e5bc95b, type: 3}
+  buttonPrefab: {fileID: 2253393103804301607, guid: e360d8d16d87ca544b56a603ea831f2f, type: 3}
   playerHeightOffset: 1
 --- !u!114 &768276830
 MonoBehaviour:
@@ -2621,4 +2564,3 @@ SceneRoots:
   - {fileID: 1749716048}
   - {fileID: 490294843}
   - {fileID: 953218659}
-  - {fileID: 664089280}
