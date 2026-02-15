@@ -1166,7 +1166,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::CaveDungeonGenerator
   ShowTopMostFoldoutHeaderGroup: 1
   width: 27
-  height: 26
+  height: 27
   cellSize: 2
   floorPrefab: {fileID: 3315031923594135049, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
   wallPrefab: {fileID: 2274982741432568134, guid: 1703cce7cfc674d2cb4215d79b29e4c2, type: 3}

@@ -25,8 +25,10 @@ public class CaveDungeonGenerator : NetworkBehaviour
     private Vector2Int startA;
     private Vector2Int startB;
     private Vector2Int exitCell;
+    private bool startAUsed = false;
+    private bool startBUsed = false;
 
-private List<GameObject> spawnedObjects = new List<GameObject>();
+    private List<GameObject> spawnedObjects = new List<GameObject>();
 
     // ================= NETWORK =================
 
@@ -34,13 +36,17 @@ private List<GameObject> spawnedObjects = new List<GameObject>();
     {
         if (!IsServer) return;
 
+        startAUsed = false;
+        startBUsed = false;
+
         Generate();
         Build();
         PositionPlayers();
-        if (NetworkManager.Singleton.IsServer)
-        {
-            
-        }
+    }
+    void OnClientConnected(ulong clientId)
+    {
+        if (!IsServer) return;
+        PositionPlayers();
     }
 
     // ================= GENERATION =================
@@ -124,7 +130,7 @@ private List<GameObject> spawnedObjects = new List<GameObject>();
                 Vector3 pos = CellToWorld(x, y);
 
                 if (map[x, y] == 0)
-                    Spawn(wallPrefab, pos);
+                    Spawn(wallPrefab, pos + Vector3.up * 3f);
                 else
                     Spawn(floorPrefab, pos);
             }
@@ -134,24 +140,114 @@ private List<GameObject> spawnedObjects = new List<GameObject>();
         Spawn(startPrefab, CellToWorld(startB));
         Spawn(endPrefab, CellToWorld(exitCell));
 
-        Spawn(doorPrefab, CellToWorld(new Vector2Int(width / 2 - 1, height / 2)));
-        Spawn(doorPrefab, CellToWorld(new Vector2Int(width / 2 + 1, height / 2)));
+        Spawn(doorPrefab, CellToWorld(new Vector2Int(width / 2 - 1, height / 2)) + Vector3.up * 3f);
+        Spawn(doorPrefab, CellToWorld(new Vector2Int(width / 2 + 1, height / 2)) + Vector3.up * 3f);
+        
+        var leftDoorObj = Spawn(doorPrefab, leftDoorPos);
+        var rightDoorObj = Spawn(doorPrefab, rightDoorPos);
+
+        var leftDoor = leftDoorObj.GetComponent<Door>();
+        var rightDoor = rightDoorObj.GetComponent<Door>();
+
+        leftDoor.doorColor = DoorColor.Red;
+        rightDoor.doorColor = DoorColor.Blue;
+        
+        // --- Поиск тупиков для спавна двух кнопок (левая и правая стороны) ---
+        List<Vector2Int> leftDeadEnds = new List<Vector2Int>();
+        List<Vector2Int> rightDeadEnds = new List<Vector2Int>();
+
+        int centerX = width / 2;
+
+        for (int x = 1; x < width - 1; x++)
+        {
+            for (int y = 1; y < height - 1; y++)
+            {
+                if (map[x, y] != 1)
+                    continue;
+
+                int neighbours = 0;
+
+                if (map[x + 1, y] == 1) neighbours++;
+                if (map[x - 1, y] == 1) neighbours++;
+                if (map[x, y + 1] == 1) neighbours++;
+                if (map[x, y - 1] == 1) neighbours++;
+
+                // Тупик = ровно один проход рядом
+                if (neighbours == 1)
+                {
+                    Vector2Int cell = new Vector2Int(x, y);
+
+                    // Исключаем старты и центр
+                    if (cell == startA || cell == startB || cell == exitCell)
+                        continue;
+
+                    if (x < centerX)
+                        leftDeadEnds.Add(cell);
+                    else if (x > centerX)
+                        rightDeadEnds.Add(cell);
+                }
+            }
+        }
+
+        if (buttonPrefab != null)
+        {
+            if (leftDeadEnds.Count > 0)
+            {
+                Vector2Int leftButtonPos = leftDeadEnds[Random.Range(0, leftDeadEnds.Count)];
+                Spawn(buttonPrefab, CellToWorld(leftButtonPos) + Vector3.up * 1f);;
+            }
+
+            if (rightDeadEnds.Count > 0)
+            {
+                Vector2Int rightButtonPos = rightDeadEnds[Random.Range(0, rightDeadEnds.Count)];
+                Spawn(buttonPrefab, CellToWorld(rightButtonPos) + Vector3.up * 1f );
+            }
+        }
+        
+        var leftButtonObj = Spawn(buttonPrefab, CellToWorld(leftButtonPos));
+        var rightButtonObj = Spawn(buttonPrefab, CellToWorld(rightButtonPos));
+
+        var leftButton = leftButtonObj.GetComponent<Button>();
+        var rightButton = rightButtonObj.GetComponent<Button>();
+
+// 🔥 ПЕРЕКРЁСТНАЯ ЛОГИКА
+        leftButton.buttonColor = DoorColor.Blue;  // левая кнопка открывает правую дверь
+        rightButton.buttonColor = DoorColor.Red;  // правая кнопка открывает левую дверь
+
+        leftButton.SetTargetDoor(rightDoor);
+        rightButton.SetTargetDoor(leftDoor);
     }
 
     // ================= PLAYERS =================
 
     void PositionPlayers()
     {
-        int i = 0;
+        // Сначала сервер (host), затем клиенты
         foreach (var c in NetworkManager.Singleton.ConnectedClientsList)
         {
-            var p = c.PlayerObject;
-            if (!p) continue;
+            var player = c.PlayerObject;
+            if (player == null) continue;
 
-            Vector3 pos = (i == 0 ? CellToWorld(startA) : CellToWorld(startB));
-            pos.y = playerHeightOffset;
-            p.transform.position = pos;
-            i++;
+            Vector3 spawnPos;
+
+            if (!startAUsed)
+            {
+                spawnPos = CellToWorld(startA);
+                startAUsed = true;
+            }
+            else if (!startBUsed)
+            {
+                spawnPos = CellToWorld(startB);
+                startBUsed = true;
+            }
+            else
+            {
+                // fallback: если стартов больше нет
+                spawnPos = CellToWorld(startA);
+            }
+
+            spawnPos.y = playerHeightOffset;
+            player.transform.position = spawnPos;
         }
     }
 
@@ -169,7 +265,7 @@ private List<GameObject> spawnedObjects = new List<GameObject>();
 
     void Spawn(GameObject prefab, Vector3 pos)
     {
-        var obj = Instantiate(prefab, pos, Quaternion.identity);
+        var obj = Instantiate(prefab, pos , Quaternion.identity);
 
         var netObj = obj.GetComponent<NetworkObject>();
         if (netObj != null && !netObj.IsSpawned)
