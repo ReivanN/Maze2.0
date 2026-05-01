@@ -1,4 +1,6 @@
+using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using Unity.Netcode;
 
@@ -25,31 +27,53 @@ public class CaveDungeonGenerator : NetworkBehaviour
     private Vector2Int startA;
     private Vector2Int startB;
     private Vector2Int exitCell;
-    private bool startAUsed = false;
-    private bool startBUsed = false;
 
     private List<GameObject> spawnedObjects = new List<GameObject>();
+    private Task generationTask;
 
     // ================= NETWORK =================
 
-    public override void OnNetworkSpawn()
+    public override async void OnNetworkSpawn()
     {
         if (!IsServer) return;
 
-        startAUsed = false;
-        startBUsed = false;
+        NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
 
-        Generate();
-        Build();
-        PositionPlayers();
+        generationTask = GenerateDungeonAsync();
+        await generationTask;
     }
-    void OnClientConnected(ulong clientId)
+
+    public override void OnNetworkDespawn()
+    {
+        if (IsServer && NetworkManager.Singleton != null)
+            NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
+    }
+
+    private async Task GenerateDungeonAsync()
+    {
+        await GenerateAsync();
+        await BuildAsync();
+        await PositionPlayersAsync();
+    }
+
+    async void OnClientConnected(ulong clientId)
     {
         if (!IsServer) return;
-        PositionPlayers();
+
+        if (generationTask != null)
+            await generationTask;
+
+        await PositionPlayerAsync(clientId);
     }
 
     // ================= GENERATION =================
+
+    async Task GenerateAsync()
+    {
+        await Task.Yield();
+        Generate();
+        await Task.Yield();
+    }
 
     void Generate()
     {
@@ -119,7 +143,7 @@ public class CaveDungeonGenerator : NetworkBehaviour
 
     // ================= BUILD =================
 
-    void Build()
+    async Task BuildAsync()
     {
         Cleanup();
 
@@ -134,6 +158,8 @@ public class CaveDungeonGenerator : NetworkBehaviour
                 else
                     Spawn(floorPrefab, pos);
             }
+
+            await Task.Yield();
         }
 
         Spawn(startPrefab, CellToWorld(startA));
@@ -150,8 +176,8 @@ public class CaveDungeonGenerator : NetworkBehaviour
         Door leftDoor = leftDoorObj.GetComponent<Door>();
         Door rightDoor = rightDoorObj.GetComponent<Door>();
 
-        leftDoor.doorColor = DoorColor.Red;
-        rightDoor.doorColor = DoorColor.Blue;
+        leftDoor.SetDoorColor(DoorColor.Red);
+        rightDoor.SetDoorColor(DoorColor.Blue);
 
         // --- Поиск тупиков для кнопок ---
         List<Vector2Int> leftDeadEnds = new List<Vector2Int>();
@@ -206,39 +232,96 @@ public class CaveDungeonGenerator : NetworkBehaviour
             leftButton.SetTargetDoor(rightDoor);
             rightButton.SetTargetDoor(leftDoor);
         }
+
+        await Task.Yield();
     }
 
     // ================= PLAYERS =================
 
-    void PositionPlayers()
+    async Task PositionPlayersAsync()
     {
-        // Сначала сервер (host), затем клиенты
+        await Task.Yield();
+
         foreach (var c in NetworkManager.Singleton.ConnectedClientsList)
         {
-            var player = c.PlayerObject;
-            if (player == null) continue;
-
-            Vector3 spawnPos;
-
-            if (!startAUsed)
-            {
-                spawnPos = CellToWorld(startA);
-                startAUsed = true;
-            }
-            else if (!startBUsed)
-            {
-                spawnPos = CellToWorld(startB);
-                startBUsed = true;
-            }
-            else
-            {
-                // fallback: если стартов больше нет
-                spawnPos = CellToWorld(startA);
-            }
-
-            spawnPos.y = playerHeightOffset;
-            player.transform.position = spawnPos;
+            await PositionPlayerAsync(c.ClientId);
         }
+    }
+
+    async Task PositionPlayerAsync(ulong clientId)
+    {
+        int waitFrames = 0;
+
+        while (NetworkManager.Singleton.ConnectedClients.TryGetValue(clientId, out var client) &&
+               client.PlayerObject == null)
+        {
+            if (waitFrames++ > 120)
+                return;
+
+            await Task.Yield();
+        }
+
+        if (!NetworkManager.Singleton.ConnectedClients.TryGetValue(clientId, out var connectedClient))
+            return;
+
+        var player = connectedClient.PlayerObject;
+        if (player == null) return;
+
+        Vector2Int spawnCell = GetSpawnCell(clientId);
+        Vector3 spawnPos = CellToWorld(spawnCell);
+        spawnPos.y = playerHeightOffset;
+
+        player.transform.position = spawnPos;
+
+        TeleportPlayerClientRpc(spawnPos, new ClientRpcParams
+        {
+            Send = new ClientRpcSendParams
+            {
+                TargetClientIds = new[] { clientId }
+            }
+        });
+    }
+
+    Vector2Int GetSpawnCell(ulong clientId)
+    {
+        return clientId == NetworkManager.ServerClientId ? startA : startB;
+    }
+
+    [ClientRpc]
+    void TeleportPlayerClientRpc(Vector3 spawnPos, ClientRpcParams clientRpcParams = default)
+    {
+        StartCoroutine(TeleportLocalPlayerWhenReady(spawnPos));
+    }
+
+    IEnumerator TeleportLocalPlayerWhenReady(Vector3 spawnPos)
+    {
+        int waitFrames = 0;
+
+        while ((NetworkManager.Singleton == null ||
+                NetworkManager.Singleton.LocalClient == null ||
+                NetworkManager.Singleton.LocalClient.PlayerObject == null) &&
+               waitFrames++ < 120)
+        {
+            yield return null;
+        }
+
+        if (NetworkManager.Singleton == null ||
+            NetworkManager.Singleton.LocalClient == null ||
+            NetworkManager.Singleton.LocalClient.PlayerObject == null)
+        {
+            yield break;
+        }
+
+        Transform playerTransform = NetworkManager.Singleton.LocalClient.PlayerObject.transform;
+        CharacterController characterController = playerTransform.GetComponent<CharacterController>();
+
+        if (characterController != null)
+            characterController.enabled = false;
+
+        playerTransform.position = spawnPos;
+
+        if (characterController != null)
+            characterController.enabled = true;
     }
 
     // ================= UTILS =================

@@ -6,19 +6,50 @@ public class Door : NetworkBehaviour
     public DoorColor doorColor;
     public Renderer doorRenderer;
 
-    private NetworkVariable<bool> isOpen = new NetworkVariable<bool>(false);
+    private NetworkVariable<bool> isOpen = new NetworkVariable<bool>(
+        false,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
 
-    private void Start()
+    private NetworkVariable<DoorColor> syncedDoorColor = new NetworkVariable<DoorColor>(
+        DoorColor.Red,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    public override void OnNetworkSpawn()
     {
-        ApplyColor();
         isOpen.OnValueChanged += OnDoorStateChanged;
+        syncedDoorColor.OnValueChanged += OnDoorColorChanged;
+
+        ApplyColor(syncedDoorColor.Value);
+
+        if (isOpen.Value)
+            Open();
     }
 
-    void ApplyColor()
+    public override void OnNetworkDespawn()
+    {
+        isOpen.OnValueChanged -= OnDoorStateChanged;
+        syncedDoorColor.OnValueChanged -= OnDoorColorChanged;
+    }
+
+    public void SetDoorColor(DoorColor color)
+    {
+        doorColor = color;
+
+        if (IsServer)
+            syncedDoorColor.Value = color;
+
+        ApplyColor(color);
+    }
+
+    void ApplyColor(DoorColor color)
     {
         if (!doorRenderer) return;
 
-        switch (doorColor)
+        switch (color)
         {
             case DoorColor.Red:
                 doorRenderer.material.color = Color.red;
@@ -28,6 +59,12 @@ public class Door : NetworkBehaviour
                 doorRenderer.material.color = Color.blue;
                 break;
         }
+    }
+
+    void OnDoorColorChanged(DoorColor oldValue, DoorColor newValue)
+    {
+        doorColor = newValue;
+        ApplyColor(newValue);
     }
 
     void OnDoorStateChanged(bool oldValue, bool newValue)

@@ -14,6 +14,7 @@ public class RelayManager : MonoBehaviour
     [SerializeField] private TMP_InputField _inputField;
     
     [SerializeField] private int maxPlayers = 4;
+    [SerializeField] private VoiceManager voiceManager;
 
     private async void Start()
     {
@@ -29,6 +30,9 @@ public class RelayManager : MonoBehaviour
         {
             string joinCode = await StartHostWithRelay(maxPlayers);
             textMeshProUGUI.text = $"{joinCode}";
+
+            if (!string.IsNullOrEmpty(joinCode))
+                await StartVoiceChat(joinCode);
         }
         catch (RelayServiceException e)
         {
@@ -41,8 +45,12 @@ public class RelayManager : MonoBehaviour
     {
         try
         {
-            bool success = await StartClientWithRelay(_inputField.text.Trim().ToUpper());
+            string joinCode = _inputField.text.Trim().ToUpper();
+            bool success = await StartClientWithRelay(joinCode);
             textMeshProUGUI.text = success ? "Подключение..." : "Ошибка подключения";
+
+            if (success)
+                await StartVoiceChat(joinCode);
         }
         catch (RelayServiceException e)
         {
@@ -98,5 +106,24 @@ public class RelayManager : MonoBehaviour
         
         // Запуск клиента
         return NetworkManager.Singleton.StartClient();
+    }
+
+    private async Task StartVoiceChat(string joinCode)
+    {
+        if (voiceManager == null)
+            voiceManager = FindAnyObjectByType<VoiceManager>();
+
+        if (voiceManager == null)
+        {
+            Debug.LogWarning("VoiceManager не найден в сцене");
+            return;
+        }
+
+        string authPlayerId = AuthenticationService.Instance.PlayerId;
+        string shortPlayerId = authPlayerId.Length > 8 ? authPlayerId[..8] : authPlayerId;
+        string playerName = $"Player_{shortPlayerId}";
+        string roomName = $"Maze_{joinCode}";
+
+        await voiceManager.StartVoice(playerName, roomName);
     }
 }

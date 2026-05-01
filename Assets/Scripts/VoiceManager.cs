@@ -1,26 +1,64 @@
 using Unity.Services.Vivox;
 using Unity.Services.Core;
 using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.UI;
 using System.Threading.Tasks;
 
 public class VoiceManager : MonoBehaviour
 {
-    async void Start()
+    [SerializeField] private Toggle microphoneToggle;
+    [SerializeField] private Key toggleMicrophoneKey = Key.T;
+
+    private bool isStarting;
+    private bool isStarted;
+    private bool isMicrophoneMuted;
+
+    public async Task StartVoice(string playerId, string roomId)
     {
-        await UnityServices.InitializeAsync();
-        await InitializeVivox();
-        await Login("Player_" + Random.Range(0, 9999));
-        VivoxService.Instance.ParticipantAddedToChannel += OnParticipantAdded;
-        await JoinChannel("GlobalChannel");
+        if (isStarting || isStarted)
+            return;
+
+        isStarting = true;
+
+        if (UnityServices.State != ServicesInitializationState.Initialized)
+            await UnityServices.InitializeAsync();
+
+        try
+        {
+            await InitializeVivox();
+            await Login(playerId);
+
+            VivoxService.Instance.ParticipantAddedToChannel -= OnParticipantAdded;
+            VivoxService.Instance.ParticipantAddedToChannel += OnParticipantAdded;
+
+            await JoinChannel(roomId);
+            isStarted = true;
+            SetMicrophoneMuted(isMicrophoneMuted);
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"Voice chat failed: {e.Message}");
+        }
+        finally
+        {
+            isStarting = false;
+        }
     }
 
-    async void StartVoiceChannel()
+    void Awake()
     {
-        await UnityServices.InitializeAsync();
-        await InitializeVivox();
-        await Login("Player_" + Random.Range(0, 9999));
-        VivoxService.Instance.ParticipantAddedToChannel += OnParticipantAdded;
-        await JoinChannel("GlobalChannel");
+        if (microphoneToggle != null)
+        {
+            microphoneToggle.SetIsOnWithoutNotify(!isMicrophoneMuted);
+            microphoneToggle.onValueChanged.AddListener(OnMicrophoneToggleChanged);
+        }
+    }
+
+    void Update()
+    {
+        if (Keyboard.current != null && Keyboard.current[toggleMicrophoneKey].wasPressedThisFrame)
+            ToggleMicrophone();
     }
 
     async Task InitializeVivox()
@@ -41,6 +79,37 @@ public class VoiceManager : MonoBehaviour
         await VivoxService.Instance.JoinGroupChannelAsync(channelName, ChatCapability.AudioOnly);
     }
 
+    public void ToggleMicrophone()
+    {
+        SetMicrophoneMuted(!isMicrophoneMuted);
+    }
+
+    public void SetMicrophoneEnabled(bool isEnabled)
+    {
+        SetMicrophoneMuted(!isEnabled);
+    }
+
+    public void SetMicrophoneMuted(bool muted)
+    {
+        isMicrophoneMuted = muted;
+
+        if (microphoneToggle != null)
+            microphoneToggle.SetIsOnWithoutNotify(!muted);
+
+        if (!isStarted)
+            return;
+
+        if (muted)
+            VivoxService.Instance.MuteInputDevice();
+        else
+            VivoxService.Instance.UnmuteInputDevice();
+    }
+
+    void OnMicrophoneToggleChanged(bool isEnabled)
+    {
+        SetMicrophoneEnabled(isEnabled);
+    }
+
     void OnParticipantAdded(VivoxParticipant participant)
     {
         Debug.Log($"{participant.DisplayName} joined");
@@ -48,6 +117,9 @@ public class VoiceManager : MonoBehaviour
 
     void OnDestroy()
     {
+        if (microphoneToggle != null)
+            microphoneToggle.onValueChanged.RemoveListener(OnMicrophoneToggleChanged);
+
         VivoxService.Instance.ParticipantAddedToChannel -= OnParticipantAdded;
     }
 }
