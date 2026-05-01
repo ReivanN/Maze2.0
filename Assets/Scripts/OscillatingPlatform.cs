@@ -1,175 +1,189 @@
+using System.Collections;
 using UnityEngine;
 
 public class OscillatingPlatform : MonoBehaviour
 {
-    [Header("Oscillation Settings")]
-    [SerializeField] private float swaySpeed = 1.5f;
-    [SerializeField] private float maxAngle = 28f;
+    [Header("Activation")]
+    [SerializeField] private string playerTag = "Player";
+    [SerializeField] private bool requirePlayerOnTop = true;
+    [SerializeField] private bool useOverlapDetection = true;
+    [SerializeField] private float topDetectionHeight = 0.35f;
+    [SerializeField] private float topDetectionPadding = 0.1f;
+
+    [Header("Oscillation")]
     [SerializeField] private float timeToFall = 2.5f;
+    [SerializeField] private float swaySpeed = 8f;
+    [SerializeField] private float maxAngle = 28f;
+    [SerializeField] private Vector3 rotationAxis = Vector3.forward;
 
-    [Header("Respawn Settings")]
+    [Header("Fall")]
+    [SerializeField] private float disappearDelay = 0.15f;
     [SerializeField] private float respawnDelay = 4f;
+    [SerializeField] private bool hideOnFall = true;
 
-    private float _shakeTimer = 0f;
-    private float _currentAngle = 0f;
-    private float _angleVelocity = 0f;
-    private float _respawnTimer = 0f;
+    private Quaternion initialRotation;
+    private Vector3 initialPosition;
+    private Collider[] platformColliders;
+    private Renderer[] platformRenderers;
 
-    private bool _playerOnPlatform = false;
-    private bool _isShaking = false;
-    private bool _isRespawning = false;
-
-    private Quaternion _initialRotation;
-    private Vector3 _initialPosition;
-    private Collider _platformCollider;
-    private Renderer _platformRenderer;
+    private Coroutine fallRoutine;
+    private float shakeTimer;
+    private bool isUnavailable;
 
     private void Awake()
     {
-        _initialRotation = transform.rotation;
-        _initialPosition = transform.position;
-        _platformCollider = GetComponent<Collider>();
-        _platformRenderer = GetComponent<Renderer>();
+        initialPosition = transform.position;
+        initialRotation = transform.rotation;
+        platformColliders = GetComponentsInChildren<Collider>();
+        platformRenderers = GetComponentsInChildren<Renderer>();
+
+        rotationAxis = rotationAxis.sqrMagnitude > 0f ? rotationAxis.normalized : Vector3.forward;
     }
 
     private void Update()
     {
-        if (_isRespawning)
-        {
-            HandleRespawn();
-            return;
-        }
-
-        if (_isShaking)
-        {
-            HandleOscillation();
-        }
-        else
-        {
-            ReturnToIdle();
-        }
-    }
-
-    private void HandleOscillation()
-    {
-        _shakeTimer += Time.deltaTime;
-
-        // Нарастание амплитуды со временем
-        float progress = Mathf.Clamp01(_shakeTimer / timeToFall);
-        float currentMaxAngle = maxAngle * progress;
-
-        _angleVelocity += Mathf.Sin(_shakeTimer * swaySpeed * 2f) * swaySpeed * Time.deltaTime * 2f;
-        _currentAngle += _angleVelocity * Time.deltaTime * 60f;
-        _currentAngle = Mathf.Clamp(_currentAngle, -currentMaxAngle, currentMaxAngle);
-
-        transform.rotation = _initialRotation * Quaternion.Euler(0f, 0f, _currentAngle);
-
-        // Игрок упал, если платформа достигла максимального угла
-        if (_playerOnPlatform && Mathf.Abs(_currentAngle) >= maxAngle - 0.5f && _shakeTimer > 0.5f)
-        {
-            DropPlayer();
-        }
-    }
-
-    private void ReturnToIdle()
-    {
-        _angleVelocity *= 0.985f;
-        _currentAngle = Mathf.Lerp(_currentAngle, 0f, Time.deltaTime * 3f);
-        transform.rotation = Quaternion.Slerp(transform.rotation, _initialRotation, Time.deltaTime * 3f);
-
-        if (Mathf.Abs(_currentAngle) < 0.1f && Mathf.Abs(_angleVelocity) < 0.01f)
-        {
-            _currentAngle = 0f;
-            _angleVelocity = 0f;
-            transform.rotation = _initialRotation;
-        }
-    }
-
-    private void HandleRespawn()
-    {
-        _respawnTimer -= Time.deltaTime;
-        if (_respawnTimer <= 0f)
-        {
-            Respawn();
-        }
-    }
-
-    private void DropPlayer()
-    {
-        _playerOnPlatform = false;
-
-        // Отталкиваем Rigidbody игрока если он есть
-        var player = FindPlayerOnPlatform();
-        if (player != null)
-        {
-            var rb = player.GetComponent<Rigidbody>();
-            if (rb != null)
-            {
-                Vector3 throwDirection = (transform.right * Mathf.Sign(_currentAngle) + Vector3.up * 0.3f).normalized;
-                rb.AddForce(throwDirection * 5f, ForceMode.Impulse);
-            }
-        }
-
-        StartRespawn();
-    }
-
-    private void StartRespawn()
-    {
-        _isShaking = false;
-        _isRespawning = true;
-        _respawnTimer = respawnDelay;
-
-        _platformCollider.enabled = false;
-        _platformRenderer.enabled = false;
-    }
-
-    private void Respawn()
-    {
-        _isRespawning = false;
-        _shakeTimer = 0f;
-        _currentAngle = 0f;
-        _angleVelocity = 0f;
-
-        transform.rotation = _initialRotation;
-        transform.position = _initialPosition;
-
-        _platformCollider.enabled = true;
-        _platformRenderer.enabled = true;
+        if (useOverlapDetection)
+            CheckPlayerOnTop();
     }
 
     private void OnCollisionEnter(Collision collision)
     {
-        if (collision.gameObject.CompareTag("Player"))
-        {
-            _playerOnPlatform = true;
-            _isShaking = true;
-            _shakeTimer = 0f;
-        }
+        TryActivate(collision.collider, collision);
     }
 
-    private void OnCollisionExit(Collision collision)
+    private void OnTriggerEnter(Collider other)
     {
-        if (collision.gameObject.CompareTag("Player"))
-        {
-            _playerOnPlatform = false;
+        TryActivate(other, null);
+    }
 
-            // Если игрок сошёл сам — постепенно останавливаем качание
-            if (!_isRespawning)
+    private void TryActivate(Collider playerCollider, Collision collision)
+    {
+        if (isUnavailable || fallRoutine != null) return;
+        if (!playerCollider.CompareTag(playerTag)) return;
+        if (requirePlayerOnTop && collision != null && !IsStandingOnTop(collision)) return;
+
+        fallRoutine = StartCoroutine(FallRoutine());
+    }
+
+    private void CheckPlayerOnTop()
+    {
+        if (isUnavailable || fallRoutine != null) return;
+        if (!TryGetMainColliderBounds(out Bounds bounds)) return;
+
+        Vector3 center = bounds.center + Vector3.up * (bounds.extents.y + topDetectionHeight * 0.5f);
+        Vector3 halfExtents = new Vector3(
+            Mathf.Max(0.05f, bounds.extents.x - topDetectionPadding),
+            topDetectionHeight * 0.5f,
+            Mathf.Max(0.05f, bounds.extents.z - topDetectionPadding)
+        );
+
+        Collider[] hits = Physics.OverlapBox(center, halfExtents, Quaternion.identity);
+        foreach (Collider hit in hits)
+        {
+            if (hit.CompareTag(playerTag) || hit.GetComponentInParent<CharacterController>() != null)
             {
-                _isShaking = false;
+                fallRoutine = StartCoroutine(FallRoutine());
+                return;
             }
         }
     }
 
-    // Вспомогательный метод — можно заменить на свою систему
-    private GameObject FindPlayerOnPlatform()
+    private bool TryGetMainColliderBounds(out Bounds bounds)
     {
-        return GameObject.FindWithTag("Player");
+        foreach (Collider platformCollider in platformColliders)
+        {
+            if (platformCollider == null || platformCollider.isTrigger)
+                continue;
+
+            bounds = platformCollider.bounds;
+            return true;
+        }
+
+        bounds = default;
+        return false;
     }
 
-    // Публичный метод для счётчика опасности (например для UI)
+    private bool IsStandingOnTop(Collision collision)
+    {
+        foreach (ContactPoint contact in collision.contacts)
+        {
+            if (Vector3.Dot(contact.normal, Vector3.up) > 0.45f)
+                return true;
+        }
+
+        return false;
+    }
+
+    private IEnumerator FallRoutine()
+    {
+        shakeTimer = 0f;
+
+        while (shakeTimer < timeToFall)
+        {
+            shakeTimer += Time.deltaTime;
+
+            float progress = Mathf.Clamp01(shakeTimer / timeToFall);
+            float angle = Mathf.Sin(shakeTimer * swaySpeed) * maxAngle * progress;
+            transform.rotation = initialRotation * Quaternion.AngleAxis(angle, rotationAxis);
+
+            yield return null;
+        }
+
+        yield return new WaitForSeconds(disappearDelay);
+
+        SetAvailable(false);
+
+        yield return new WaitForSeconds(respawnDelay);
+
+        Respawn();
+    }
+
+    private void SetAvailable(bool available)
+    {
+        isUnavailable = !available;
+
+        foreach (Collider platformCollider in platformColliders)
+        {
+            if (platformCollider != null)
+                platformCollider.enabled = available;
+        }
+
+        if (!hideOnFall) return;
+
+        foreach (Renderer platformRenderer in platformRenderers)
+        {
+            if (platformRenderer != null)
+                platformRenderer.enabled = available;
+        }
+    }
+
+    private void Respawn()
+    {
+        transform.SetPositionAndRotation(initialPosition, initialRotation);
+        shakeTimer = 0f;
+        fallRoutine = null;
+
+        SetAvailable(true);
+    }
+
+    [ContextMenu("Activate Fall")]
+    public void ActivateFall()
+    {
+        if (fallRoutine == null && !isUnavailable)
+            fallRoutine = StartCoroutine(FallRoutine());
+    }
+
+    [ContextMenu("Force Respawn")]
+    public void ForceRespawn()
+    {
+        if (fallRoutine != null)
+            StopCoroutine(fallRoutine);
+
+        Respawn();
+    }
+
     public float GetDangerProgress()
     {
-        return Mathf.Clamp01(_shakeTimer / timeToFall);
+        return Mathf.Clamp01(shakeTimer / timeToFall);
     }
 }

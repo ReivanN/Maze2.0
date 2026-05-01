@@ -18,6 +18,13 @@ public class CaveDungeonGenerator : NetworkBehaviour
     public GameObject endPrefab;
     public GameObject doorPrefab;
     public GameObject buttonPrefab;
+    public GameObject fallingPlatformPrefab;
+
+    [Header("Падающие платформы")]
+    [SerializeField] private int fallingPlatformRowsPerSideMin = 2;
+    [SerializeField] private int fallingPlatformRowsPerSideMax = 3;
+    [SerializeField] private int fallingPlatformRowLengthMin = 2;
+    [SerializeField] private int fallingPlatformRowLengthMax = 4;
 
     [Header("Player")]
     public float playerHeightOffset = 1f;
@@ -27,6 +34,7 @@ public class CaveDungeonGenerator : NetworkBehaviour
     private Vector2Int startA;
     private Vector2Int startB;
     private Vector2Int exitCell;
+    private HashSet<Vector2Int> fallingPlatformCells = new HashSet<Vector2Int>();
 
     private List<GameObject> spawnedObjects = new List<GameObject>();
     private Task generationTask;
@@ -77,6 +85,7 @@ public class CaveDungeonGenerator : NetworkBehaviour
 
     void Generate()
     {
+        fallingPlatformCells.Clear();
         map = new int[width, height];
 
         for (int x = 0; x < width; x++)
@@ -107,6 +116,8 @@ public class CaveDungeonGenerator : NetworkBehaviour
         // --- Генерация лабиринтов ---
         CarveSide(startA.x, startA.y, 1, cx - 2);
         CarveSide(startB.x, startB.y, cx + 2, width - 2);
+
+        ChooseFallingPlatformCells();
     }
 
     void CarveSide(int x, int y, int minX, int maxX)
@@ -141,6 +152,88 @@ public class CaveDungeonGenerator : NetworkBehaviour
         return x > 0 && y > 0 && x < width - 1 && y < height - 1;
     }
 
+    void ChooseFallingPlatformCells()
+    {
+        if (fallingPlatformPrefab == null) return;
+
+        int minRows = Mathf.Min(fallingPlatformRowsPerSideMin, fallingPlatformRowsPerSideMax);
+        int maxRows = Mathf.Max(fallingPlatformRowsPerSideMin, fallingPlatformRowsPerSideMax);
+        int minLength = Mathf.Min(fallingPlatformRowLengthMin, fallingPlatformRowLengthMax);
+        int maxLength = Mathf.Max(fallingPlatformRowLengthMin, fallingPlatformRowLengthMax);
+
+        minRows = Mathf.Max(0, minRows);
+        maxRows = Mathf.Max(0, maxRows);
+        minLength = Mathf.Max(1, minLength);
+        maxLength = Mathf.Max(1, maxLength);
+
+        int centerX = width / 2;
+
+        PlaceFallingPlatformRows(1, centerX - 2, minRows, maxRows, minLength, maxLength);
+        PlaceFallingPlatformRows(centerX + 2, width - 2, minRows, maxRows, minLength, maxLength);
+    }
+
+    void PlaceFallingPlatformRows(int minX, int maxX, int minRows, int maxRows, int minLength, int maxLength)
+    {
+        if (minX > maxX) return;
+
+        int rowsToPlace = Random.Range(minRows, maxRows + 1);
+        int attempts = rowsToPlace * 20;
+
+        while (rowsToPlace > 0 && attempts-- > 0)
+        {
+            int rowLength = Random.Range(minLength, maxLength + 1);
+            Vector2Int direction = Random.value > 0.5f ? Vector2Int.right : Vector2Int.up;
+            Vector2Int startCell = new Vector2Int(Random.Range(minX, maxX + 1), Random.Range(1, height - 1));
+
+            if (!CanPlaceFallingPlatformRow(startCell, direction, rowLength, minX, maxX))
+                continue;
+
+            for (int i = 0; i < rowLength; i++)
+                fallingPlatformCells.Add(startCell + direction * i);
+
+            rowsToPlace--;
+        }
+    }
+
+    bool CanPlaceFallingPlatformRow(Vector2Int startCell, Vector2Int direction, int length, int minX, int maxX)
+    {
+        for (int i = 0; i < length; i++)
+        {
+            Vector2Int cell = startCell + direction * i;
+
+            if (cell.x < minX || cell.x > maxX)
+                return false;
+
+            if (!IsWalkableFallingPlatformCell(cell))
+                return false;
+
+            if (fallingPlatformCells.Contains(cell))
+                return false;
+        }
+
+        return true;
+    }
+
+    bool IsWalkableFallingPlatformCell(Vector2Int cell)
+    {
+        if (cell.x <= 0 || cell.y <= 0 || cell.x >= width - 1 || cell.y >= height - 1)
+            return false;
+
+        if (map[cell.x, cell.y] != 1)
+            return false;
+
+        if (cell == startA || cell == startB || cell == exitCell)
+            return false;
+
+        int centerX = width / 2;
+        int centerY = height / 2;
+
+        if (Mathf.Abs(cell.x - centerX) <= 1 && Mathf.Abs(cell.y - centerY) <= 1)
+            return false;
+
+        return true;
+    }
+
     // ================= BUILD =================
 
     async Task BuildAsync()
@@ -154,9 +247,17 @@ public class CaveDungeonGenerator : NetworkBehaviour
                 Vector3 pos = CellToWorld(x, y);
 
                 if (map[x, y] == 0)
+                {
                     Spawn(wallPrefab, pos + Vector3.up * 3f);
+                }
+                else if (fallingPlatformCells.Contains(new Vector2Int(x, y)))
+                {
+                    Spawn(fallingPlatformPrefab, pos);
+                }
                 else
+                {
                     Spawn(floorPrefab, pos);
+                }
             }
 
             await Task.Yield();
