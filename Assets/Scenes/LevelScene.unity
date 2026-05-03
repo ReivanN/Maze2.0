@@ -1254,10 +1254,14 @@ MonoBehaviour:
   doorPrefab: {fileID: 3921112516457319970, guid: da2b740b0af3741f693ccfdf91ec93d0, type: 3}
   buttonPrefab: {fileID: 2253393103804301607, guid: e360d8d16d87ca544b56a603ea831f2f, type: 3}
   fallingPlatformPrefab: {fileID: 2489608222819041174, guid: f1eec06f2a07a42288af5f4cada5914c, type: 3}
+  laserTrapPrefab: {fileID: 8283847408958263004, guid: 72005a77723ce43a68173131ab388110, type: 3}
+  laserSwitchPrefab: {fileID: 7581313357955315418, guid: 97a37d2199ef94f1bb69dba6dac5bc9b, type: 3}
   fallingPlatformRowsPerSideMin: 2
   fallingPlatformRowsPerSideMax: 3
   fallingPlatformRowLengthMin: 2
   fallingPlatformRowLengthMax: 4
+  laserHeightOffset: 1
+  laserSwitchHeightOffset: 1
   playerHeightOffset: 1
 --- !u!114 &768276830
 MonoBehaviour:

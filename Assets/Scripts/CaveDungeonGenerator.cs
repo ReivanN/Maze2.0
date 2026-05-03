@@ -19,12 +19,18 @@ public class CaveDungeonGenerator : NetworkBehaviour
     public GameObject doorPrefab;
     public GameObject buttonPrefab;
     public GameObject fallingPlatformPrefab;
+    public GameObject laserTrapPrefab;
+    public GameObject laserSwitchPrefab;
 
     [Header("Падающие платформы")]
     [SerializeField] private int fallingPlatformRowsPerSideMin = 2;
     [SerializeField] private int fallingPlatformRowsPerSideMax = 3;
     [SerializeField] private int fallingPlatformRowLengthMin = 2;
     [SerializeField] private int fallingPlatformRowLengthMax = 4;
+
+    [Header("Лазерная ловушка")]
+    [SerializeField] private float laserHeightOffset = 1f;
+    [SerializeField] private float laserSwitchHeightOffset = 1f;
 
     [Header("Player")]
     public float playerHeightOffset = 1f;
@@ -320,6 +326,11 @@ public class CaveDungeonGenerator : NetworkBehaviour
             Vector2Int leftButtonPos = leftDeadEnds[Random.Range(0, leftDeadEnds.Count)];
             Vector2Int rightButtonPos = rightDeadEnds[Random.Range(0, rightDeadEnds.Count)];
 
+            leftDeadEnds.Remove(leftButtonPos);
+            rightDeadEnds.Remove(rightButtonPos);
+
+            TrySpawnLaserPuzzle(leftButtonPos, rightButtonPos, leftDeadEnds, rightDeadEnds);
+
             GameObject leftButtonObj = Spawn(buttonPrefab, CellToWorld(leftButtonPos) + Vector3.up * 1f);
             GameObject rightButtonObj = Spawn(buttonPrefab, CellToWorld(rightButtonPos) + Vector3.up * 1f);
 
@@ -335,6 +346,80 @@ public class CaveDungeonGenerator : NetworkBehaviour
         }
 
         await Task.Yield();
+    }
+
+    void TrySpawnLaserPuzzle(
+        Vector2Int leftKeyCell,
+        Vector2Int rightKeyCell,
+        List<Vector2Int> leftFreeDeadEnds,
+        List<Vector2Int> rightFreeDeadEnds)
+    {
+        if (laserTrapPrefab == null || laserSwitchPrefab == null)
+            return;
+
+        bool canBlockLeftKey = rightFreeDeadEnds.Count > 0;
+        bool canBlockRightKey = leftFreeDeadEnds.Count > 0;
+
+        if (!canBlockLeftKey && !canBlockRightKey)
+            return;
+
+        bool blockLeftSide = canBlockLeftKey && (!canBlockRightKey || Random.value > 0.5f);
+
+        Vector2Int protectedCell = blockLeftSide ? leftKeyCell : rightKeyCell;
+        List<Vector2Int> switchCandidates = blockLeftSide ? rightFreeDeadEnds : leftFreeDeadEnds;
+
+        if (!TryGetDeadEndEntry(protectedCell, out Vector2Int entryCell))
+            return;
+
+        Vector2Int switchCell = switchCandidates[Random.Range(0, switchCandidates.Count)];
+
+        Vector3 laserPosition = CellToWorld(protectedCell);
+        laserPosition.y = laserHeightOffset;
+
+        Vector3 laserDirection = new Vector3(
+            protectedCell.x - entryCell.x,
+            0f,
+            protectedCell.y - entryCell.y
+        ).normalized;
+
+        GameObject laserObj = Spawn(laserTrapPrefab, laserPosition);
+        laserObj.transform.rotation = Quaternion.LookRotation(laserDirection, Vector3.up);
+
+        GameObject switchObj = Spawn(laserSwitchPrefab, CellToWorld(switchCell) + Vector3.up * laserSwitchHeightOffset);
+
+        LaserTrap laserTrap = laserObj.GetComponent<LaserTrap>();
+        LaserSwitch laserSwitch = switchObj.GetComponent<LaserSwitch>();
+
+        if (laserTrap != null && laserSwitch != null)
+            laserSwitch.SetTargetLaser(laserTrap);
+    }
+
+    bool TryGetDeadEndEntry(Vector2Int deadEndCell, out Vector2Int entryCell)
+    {
+        Vector2Int[] directions =
+        {
+            Vector2Int.right,
+            Vector2Int.left,
+            Vector2Int.up,
+            Vector2Int.down
+        };
+
+        foreach (Vector2Int direction in directions)
+        {
+            Vector2Int candidate = deadEndCell + direction;
+
+            if (candidate.x <= 0 || candidate.y <= 0 || candidate.x >= width - 1 || candidate.y >= height - 1)
+                continue;
+
+            if (map[candidate.x, candidate.y] == 1)
+            {
+                entryCell = candidate;
+                return true;
+            }
+        }
+
+        entryCell = default;
+        return false;
     }
 
     // ================= PLAYERS =================
@@ -386,6 +471,11 @@ public class CaveDungeonGenerator : NetworkBehaviour
     Vector2Int GetSpawnCell(ulong clientId)
     {
         return clientId == NetworkManager.ServerClientId ? startA : startB;
+    }
+
+    public Vector3 GetSpawnWorldPosition(ulong clientId)
+    {
+        return CellToWorld(GetSpawnCell(clientId));
     }
 
     [ClientRpc]
