@@ -184,7 +184,7 @@ MonoBehaviour:
   ShowTopMostFoldoutHeaderGroup: 1
   laserOrigin: {fileID: 3019421698100915527}
   localDirection: {x: 0, y: 0, z: 1}
-  maxDistance: 8
+  maxDistance: 12
   hitRadius: 0.2
   hitMask:
     serializedVersion: 2

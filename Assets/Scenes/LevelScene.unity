@@ -1245,7 +1245,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::CaveDungeonGenerator
   ShowTopMostFoldoutHeaderGroup: 1
   width: 27
-  height: 27
+  height: 28
   cellSize: 2
   floorPrefab: {fileID: 3315031923594135049, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
   wallPrefab: {fileID: 2274982741432568134, guid: 1703cce7cfc674d2cb4215d79b29e4c2, type: 3}
@@ -1261,7 +1261,7 @@ MonoBehaviour:
   fallingPlatformRowLengthMin: 2
   fallingPlatformRowLengthMax: 4
   laserHeightOffset: 1
-  laserSwitchHeightOffset: 1
+  laserSwitchHeightOffset: 0.1
   playerHeightOffset: 1
 --- !u!114 &768276830
 MonoBehaviour:
@@ -2950,7 +2950,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1916904027
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2958,7 +2958,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1916904026}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 80d63f4c24d144068bd2ef13339aee5a, type: 3}
   m_Name: 

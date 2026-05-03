@@ -52,29 +52,22 @@ public class LaserTrap : NetworkBehaviour
 
     private void Update()
     {
-        Vector3 start = laserOrigin.position;
-        Vector3 end = GetLaserEnd(start, out RaycastHit hit);
+        Vector3 origin = laserOrigin.position;
+        Vector3 direction = laserOrigin.TransformDirection(localDirection.normalized);
+        Vector3 forwardEnd = GetLaserEnd(origin, direction, out RaycastHit forwardHit);
+        Vector3 backwardEnd = GetLaserEnd(origin, -direction, out RaycastHit backwardHit);
 
-        UpdateVisual(start, end);
+        UpdateVisual(backwardEnd, forwardEnd);
 
         if (!IsServer || !isActive.Value) return;
         if (Time.time - lastHitTime < hitCooldown) return;
 
-        if (hit.collider != null && hit.collider.CompareTag("Player"))
-        {
-            NetworkObject playerNetworkObject = hit.collider.GetComponentInParent<NetworkObject>();
-            if (playerNetworkObject != null)
-            {
-                lastHitTime = Time.time;
-                RespawnPlayer(playerNetworkObject.OwnerClientId);
-            }
-        }
+        TryRespawnHitPlayer(forwardHit);
+        TryRespawnHitPlayer(backwardHit);
     }
 
-    private Vector3 GetLaserEnd(Vector3 start, out RaycastHit hit)
+    private Vector3 GetLaserEnd(Vector3 start, Vector3 direction, out RaycastHit hit)
     {
-        Vector3 direction = laserOrigin.TransformDirection(localDirection.normalized);
-
         if (isActive.Value && Physics.SphereCast(start, hitRadius, direction, out hit, maxDistance, hitMask, QueryTriggerInteraction.Ignore))
             return hit.point;
 
@@ -91,6 +84,19 @@ public class LaserTrap : NetworkBehaviour
 
         lineRenderer.SetPosition(0, start);
         lineRenderer.SetPosition(1, end);
+    }
+
+    private void TryRespawnHitPlayer(RaycastHit hit)
+    {
+        if (hit.collider == null || !hit.collider.CompareTag("Player"))
+            return;
+
+        NetworkObject playerNetworkObject = hit.collider.GetComponentInParent<NetworkObject>();
+        if (playerNetworkObject == null)
+            return;
+
+        lastHitTime = Time.time;
+        RespawnPlayer(playerNetworkObject.OwnerClientId);
     }
 
     private void RespawnPlayer(ulong clientId)

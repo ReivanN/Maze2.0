@@ -30,7 +30,7 @@ public class CaveDungeonGenerator : NetworkBehaviour
 
     [Header("Лазерная ловушка")]
     [SerializeField] private float laserHeightOffset = 1f;
-    [SerializeField] private float laserSwitchHeightOffset = 1f;
+    [SerializeField] private float laserSwitchHeightOffset = 0.1f;
 
     [Header("Player")]
     public float playerHeightOffset = 1f;
@@ -91,6 +91,7 @@ public class CaveDungeonGenerator : NetworkBehaviour
 
     void Generate()
     {
+        NormalizeMazeDimensions();
         fallingPlatformCells.Clear();
         map = new int[width, height];
 
@@ -101,56 +102,219 @@ public class CaveDungeonGenerator : NetworkBehaviour
         int cx = width / 2;
         int cy = height / 2;
 
-        // --- Центральный вертикальный туннель (1 клетка шириной) ---
-        for (int y = 1; y < height - 1; y++)
-            map[cx, y] = 1;
-
-        // --- Выход в центре туннеля ---
         exitCell = new Vector2Int(cx, cy);
-
-        // --- Двери в туннель (слева и справа) ---
         Vector2Int doorLeft = new Vector2Int(cx - 1, cy);
         Vector2Int doorRight = new Vector2Int(cx + 1, cy);
 
-        map[doorLeft.x, doorLeft.y] = 1;
-        map[doorRight.x, doorRight.y] = 1;
-
-        // --- Старты ---
         startA = new Vector2Int(1, cy);
         startB = new Vector2Int(width - 2, cy);
 
-        // --- Генерация лабиринтов ---
-        CarveSide(startA.x, startA.y, 1, cx - 2);
-        CarveSide(startB.x, startB.y, cx + 2, width - 2);
+        GenerateSideGrowingTree(startA, 1, cx - 1);
+        GenerateSideGrowingTree(startB, cx + 1, width - 2);
+
+        map[exitCell.x, exitCell.y] = 1;
+        map[doorLeft.x, doorLeft.y] = 1;
+        map[doorRight.x, doorRight.y] = 1;
+
+        ConnectAnchorToSide(doorLeft, 1, cx - 1);
+        ConnectAnchorToSide(doorRight, cx + 1, width - 2);
 
         ChooseFallingPlatformCells();
     }
 
-    void CarveSide(int x, int y, int minX, int maxX)
+    void NormalizeMazeDimensions()
     {
-        map[x, y] = 1;
+        width = Mathf.Max(13, width);
+        height = Mathf.Max(9, height);
 
-        Vector2Int[] dirs =
+        if (width % 2 == 0)
+            width++;
+
+        if (height % 2 == 0)
+            height++;
+
+        while (width % 4 != 1)
+            width += 2;
+
+        while (height % 4 != 1)
+            height += 2;
+    }
+
+    void GenerateSideGrowingTree(Vector2Int seed, int minX, int maxX)
+    {
+        List<Vector2Int> active = new List<Vector2Int>();
+        map[seed.x, seed.y] = 1;
+        active.Add(seed);
+
+        while (active.Count > 0)
+        {
+            int currentIndex = ChooseGrowingTreeIndex(active.Count);
+            Vector2Int current = active[currentIndex];
+
+            List<Vector2Int> availableDirections = GetAvailableDirections(current, minX, maxX);
+
+            if (availableDirections.Count == 0)
+            {
+                active.RemoveAt(currentIndex);
+                continue;
+            }
+
+            Vector2Int direction = availableDirections[Random.Range(0, availableDirections.Count)];
+            Vector2Int between = current + direction;
+            Vector2Int next = current + direction * 2;
+
+            map[between.x, between.y] = 1;
+            map[next.x, next.y] = 1;
+            active.Add(next);
+        }
+    }
+
+    int ChooseGrowingTreeIndex(int count)
+    {
+        if (count <= 1)
+            return 0;
+
+        if (Random.value < 0.7f)
+            return count - 1;
+
+        return Random.Range(0, count);
+    }
+
+    List<Vector2Int> GetAvailableDirections(Vector2Int current, int minX, int maxX)
+    {
+        List<Vector2Int> directions = new List<Vector2Int>(4);
+        Vector2Int[] candidates =
         {
             Vector2Int.up,
             Vector2Int.down,
             Vector2Int.left,
             Vector2Int.right
         };
-        Shuffle(dirs);
 
-        foreach (var d in dirs)
+        Shuffle(candidates);
+
+        foreach (Vector2Int direction in candidates)
         {
-            int nx = x + d.x * 2;
-            int ny = y + d.y * 2;
+            Vector2Int next = current + direction * 2;
 
-            if (nx < minX || nx > maxX) continue;
-            if (!IsInside(nx, ny)) continue;
-            if (map[nx, ny] != 0) continue;
+            if (next.x < minX || next.x > maxX)
+                continue;
 
-            map[x + d.x, y + d.y] = 1;
-            CarveSide(nx, ny, minX, maxX);
+            if (!IsInside(next.x, next.y))
+                continue;
+
+            if (map[next.x, next.y] != 0)
+                continue;
+
+            directions.Add(direction);
         }
+
+        return directions;
+    }
+
+    void ConnectAnchorToSide(Vector2Int anchorCell, int minX, int maxX)
+    {
+        Vector2Int[] directions =
+        {
+            Vector2Int.left,
+            Vector2Int.right,
+            Vector2Int.up,
+            Vector2Int.down
+        };
+
+        foreach (Vector2Int direction in directions)
+        {
+            Vector2Int neighbour = anchorCell + direction;
+
+            if (neighbour.x < minX || neighbour.x > maxX)
+                continue;
+
+            if (!IsInside(neighbour.x, neighbour.y))
+                continue;
+
+            if (map[neighbour.x, neighbour.y] == 1)
+                return;
+        }
+
+        List<Vector2Int> candidates = new List<Vector2Int>(4);
+
+        foreach (Vector2Int direction in directions)
+        {
+            Vector2Int neighbour = anchorCell + direction;
+            Vector2Int target = anchorCell + direction * 2;
+
+            if (neighbour.x < minX || neighbour.x > maxX)
+                continue;
+
+            if (target.x < minX || target.x > maxX)
+                continue;
+
+            if (!IsInside(target.x, target.y))
+                continue;
+
+            if (map[target.x, target.y] != 1)
+                continue;
+
+            candidates.Add(direction);
+        }
+
+        if (candidates.Count > 0)
+        {
+            Vector2Int direction = candidates[Random.Range(0, candidates.Count)];
+            Vector2Int neighbour = anchorCell + direction;
+            map[neighbour.x, neighbour.y] = 1;
+            return;
+        }
+
+        CarveStraightToNearestPath(anchorCell, minX, maxX);
+    }
+
+    void CarveStraightToNearestPath(Vector2Int anchorCell, int minX, int maxX)
+    {
+        Vector2Int horizontal = anchorCell.x < width / 2 ? Vector2Int.left : Vector2Int.right;
+        Vector2Int current = anchorCell;
+
+        while (true)
+        {
+            Vector2Int next = current + horizontal;
+
+            if (next.x < minX || next.x > maxX || !IsInside(next.x, next.y))
+                return;
+
+            map[next.x, next.y] = 1;
+
+            if (HasWalkableNeighbourExcept(next, current))
+                return;
+
+            current = next;
+        }
+    }
+
+    bool HasWalkableNeighbourExcept(Vector2Int cell, Vector2Int excluded)
+    {
+        Vector2Int[] directions =
+        {
+            Vector2Int.left,
+            Vector2Int.right,
+            Vector2Int.up,
+            Vector2Int.down
+        };
+
+        foreach (Vector2Int direction in directions)
+        {
+            Vector2Int neighbour = cell + direction;
+
+            if (neighbour == excluded)
+                continue;
+
+            if (!IsInside(neighbour.x, neighbour.y))
+                continue;
+
+            if (map[neighbour.x, neighbour.y] == 1)
+                return true;
+        }
+
+        return false;
     }
 
     bool IsInside(int x, int y)
@@ -277,8 +441,8 @@ public class CaveDungeonGenerator : NetworkBehaviour
         Vector2Int leftDoorCell = new Vector2Int(width / 2 - 1, height / 2);
         Vector2Int rightDoorCell = new Vector2Int(width / 2 + 1, height / 2);
 
-        GameObject leftDoorObj = Spawn(doorPrefab, CellToWorld(leftDoorCell) + Vector3.up * 3f);
-        GameObject rightDoorObj = Spawn(doorPrefab, CellToWorld(rightDoorCell) + Vector3.up * 3f);
+        GameObject leftDoorObj = Spawn(doorPrefab, CellToWorld(leftDoorCell) + Vector3.up * 1.5f);
+        GameObject rightDoorObj = Spawn(doorPrefab, CellToWorld(rightDoorCell) + Vector3.up * 1.5f);
 
         Door leftDoor = leftDoorObj.GetComponent<Door>();
         Door rightDoor = rightDoorObj.GetComponent<Door>();
@@ -331,8 +495,8 @@ public class CaveDungeonGenerator : NetworkBehaviour
 
             TrySpawnLaserPuzzle(leftButtonPos, rightButtonPos, leftDeadEnds, rightDeadEnds);
 
-            GameObject leftButtonObj = Spawn(buttonPrefab, CellToWorld(leftButtonPos) + Vector3.up * 1f);
-            GameObject rightButtonObj = Spawn(buttonPrefab, CellToWorld(rightButtonPos) + Vector3.up * 1f);
+            GameObject leftButtonObj = Spawn(buttonPrefab, CellToWorld(leftButtonPos) + Vector3.up * 0.01f);
+            GameObject rightButtonObj = Spawn(buttonPrefab, CellToWorld(rightButtonPos) + Vector3.up * 0.01f);
 
             Button leftButton = leftButtonObj.GetComponent<Button>();
             Button rightButton = rightButtonObj.GetComponent<Button>();
@@ -372,15 +536,16 @@ public class CaveDungeonGenerator : NetworkBehaviour
             return;
 
         Vector2Int switchCell = switchCandidates[Random.Range(0, switchCandidates.Count)];
+        Vector2Int corridorDirection = protectedCell - entryCell;
+        Vector2Int laserBeamDirection = new Vector2Int(-corridorDirection.y, corridorDirection.x);
 
-        Vector3 laserPosition = CellToWorld(protectedCell);
+        if (laserBeamDirection == Vector2Int.zero)
+            return;
+
+        Vector3 laserPosition = CellCenterToWorld(entryCell);
         laserPosition.y = laserHeightOffset;
 
-        Vector3 laserDirection = new Vector3(
-            protectedCell.x - entryCell.x,
-            0f,
-            protectedCell.y - entryCell.y
-        ).normalized;
+        Vector3 laserDirection = CellDirectionToWorld(laserBeamDirection).normalized;
 
         GameObject laserObj = Spawn(laserTrapPrefab, laserPosition);
         laserObj.transform.rotation = Quaternion.LookRotation(laserDirection, Vector3.up);
@@ -525,6 +690,17 @@ public class CaveDungeonGenerator : NetworkBehaviour
     Vector3 CellToWorld(Vector2Int cell)
     {
         return new Vector3(cell.x * cellSize, 0, cell.y * cellSize);
+    }
+
+    Vector3 CellCenterToWorld(Vector2Int cell)
+    {
+        float halfCell = cellSize * 0.5f;
+        return new Vector3(cell.x * cellSize + halfCell, 0f, cell.y * cellSize + halfCell);
+    }
+
+    Vector3 CellDirectionToWorld(Vector2Int direction)
+    {
+        return new Vector3(direction.x, 0f, direction.y);
     }
 
     GameObject Spawn(GameObject prefab, Vector3 pos)
