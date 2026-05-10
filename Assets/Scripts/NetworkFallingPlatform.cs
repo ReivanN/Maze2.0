@@ -65,6 +65,9 @@ public class NetworkFallingPlatform : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
+        startPosition = transform.position;
+        startRotation = transform.rotation;
+
         state.OnValueChanged += OnStateChanged;
         isTriggerActive.OnValueChanged += OnTriggerActiveChanged;
         
@@ -140,16 +143,7 @@ public class NetworkFallingPlatform : NetworkBehaviour
     [ClientRpc]
     private void RespawnPlatformClientRpc()
     {
-        if (!IsServer) // Только клиенты
-        {
-            // Клиенты визуально возвращают платформу
-            transform.SetPositionAndRotation(startPosition, startRotation);
-            state.Value = PlatformState.Idle;
-            
-            // Включаем коллайдер и возвращаем в кинематическое состояние
-            platformCollider.enabled = true;
-            rb.isKinematic = true;
-        }
+        ApplyLocalReset();
     }
 
     private void ResetPlatform()
@@ -172,6 +166,24 @@ public class NetworkFallingPlatform : NetworkBehaviour
         
         // Возвращаем в исходное состояние
         state.Value = PlatformState.Idle;
+    }
+
+    private void ApplyLocalReset()
+    {
+        if (rb != null)
+        {
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+            rb.isKinematic = true;
+        }
+
+        transform.SetPositionAndRotation(startPosition, startRotation);
+
+        if (platformCollider != null)
+            platformCollider.enabled = true;
+
+        ApplyTriggerState(true);
+        ApplyPlatformState(PlatformState.Idle);
     }
 
     private void OnStateChanged(PlatformState previous, PlatformState current)

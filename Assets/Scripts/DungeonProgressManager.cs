@@ -3,12 +3,21 @@ using UnityEngine;
 using Unity.Netcode;
 using System.Linq;
 using TMPro;
+using System.Collections;
 
 public class DungeonProgressManager : NetworkBehaviour
 {
     [Header("Настройки лабиринта")]
     [SerializeField] private CaveDungeonGenerator dungeonGenerator;
     [SerializeField] private float checkInterval = 0.5f;
+    [SerializeField] private float nextLevelDelay = 3f;
+    [SerializeField] private int minPlayersToComplete = 2;
+
+    [Header("Прогрессия уровней")]
+    [SerializeField] private int widthIncreasePerLevel = 4;
+    [SerializeField] private int heightIncreasePerLevel = 4;
+    [SerializeField] private int maxWidth = 0;
+    [SerializeField] private int maxHeight = 0;
     
     [Header("Визуальная обратная связь")]
     [SerializeField] private GameObject victoryEffectPrefab;
@@ -30,14 +39,22 @@ public class DungeonProgressManager : NetworkBehaviour
         NetworkVariableReadPermission.Everyone,
         NetworkVariableWritePermission.Server
     );
+
+    private NetworkVariable<int> currentLevel = new NetworkVariable<int>(
+        1,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
     
     private List<ulong> playersInEndZone = new List<ulong>();
     private GameObject endZoneObject;
     private float checkTimer;
+    private Coroutine nextLevelCoroutine;
     
     // События для UI
     public System.Action<int, int> OnProgressUpdated;
     public System.Action OnLevelCompleted;
+    public System.Action<int> OnLevelChanged;
     
     public override void OnNetworkSpawn()
     {
@@ -54,8 +71,10 @@ public class DungeonProgressManager : NetworkBehaviour
         // Подписываемся на изменения сетевых переменных
         playersAtEnd.OnValueChanged += OnPlayersAtEndChanged;
         levelCompleted.OnValueChanged += OnLevelCompletedChanged;
+        currentLevel.OnValueChanged += OnCurrentLevelChanged;
         
         UpdateUI();
+        OnLevelChanged?.Invoke(currentLevel.Value);
     }
     
     public override void OnNetworkDespawn()
@@ -71,6 +90,7 @@ public class DungeonProgressManager : NetworkBehaviour
         
         playersAtEnd.OnValueChanged -= OnPlayersAtEndChanged;
         levelCompleted.OnValueChanged -= OnLevelCompletedChanged;
+        currentLevel.OnValueChanged -= OnCurrentLevelChanged;
     }
     
     void Update()
@@ -142,7 +162,10 @@ public class DungeonProgressManager : NetworkBehaviour
         
         // Проверяем условие победы
         int totalPlayers = NetworkManager.Singleton.ConnectedClientsList.Count;
-        if (playersInEndZone.Count >= 2 && playersInEndZone.Count == totalPlayers)
+        int requiredPlayers = Mathf.Max(minPlayersToComplete, totalPlayers);
+
+        if (totalPlayers >= minPlayersToComplete &&
+            playersInEndZone.Count >= requiredPlayers)
         {
             CompleteLevel();
         }
@@ -159,32 +182,52 @@ public class DungeonProgressManager : NetworkBehaviour
         PlayVictoryEffectsClientRpc(endZoneObject.transform.position);
         
         // Ждем немного перед генерацией нового уровня
-        Invoke(nameof(GenerateNewLevel), 2f);
+        if (nextLevelCoroutine != null)
+        {
+            StopCoroutine(nextLevelCoroutine);
+        }
+
+        nextLevelCoroutine = StartCoroutine(GenerateNewLevelAfterDelay());
     }
     
-    void GenerateNewLevel()
+    IEnumerator GenerateNewLevelAfterDelay()
+    {
+        yield return new WaitForSeconds(nextLevelDelay);
+        nextLevelCoroutine = null;
+        GenerateNewLevel();
+    }
+
+    async void GenerateNewLevel()
     {
         if (!IsServer) return;
         
         Debug.Log("Генерируем новый уровень...");
         
         // Сбрасываем состояние
-        levelCompleted.Value = false;
         playersInEndZone.Clear();
         playersAtEnd.Value = 0;
+        currentLevel.Value++;
         
         // Генерируем новый лабиринт
         if (dungeonGenerator != null)
         {
-            //dungeonGenerator.RegenerateDungeonServerRpc();
+            await dungeonGenerator.RegenerateDungeonForLevelAsync(
+                currentLevel.Value,
+                widthIncreasePerLevel,
+                heightIncreasePerLevel,
+                maxWidth,
+                maxHeight);
         }
         else
         {
             RegenerateDungeonManually();
         }
+
+        FindEndZone();
+        levelCompleted.Value = false;
         
         // Обновляем UI
-        UpdateLevelCompleteClientRpc();
+        UpdateLevelStartedClientRpc(currentLevel.Value);
     }
     
     void RegenerateDungeonManually()
@@ -235,6 +278,13 @@ public class DungeonProgressManager : NetworkBehaviour
     {
         UpdateUI();
     }
+
+    [ClientRpc]
+    void UpdateLevelStartedClientRpc(int newLevel)
+    {
+        UpdateUI();
+        OnLevelChanged?.Invoke(newLevel);
+    }
     
     void OnPlayersAtEndChanged(int oldValue, int newValue)
     {
@@ -248,6 +298,14 @@ public class DungeonProgressManager : NetworkBehaviour
         {
             Debug.Log("Уровень завершен!");
         }
+
+        UpdateUI();
+    }
+
+    void OnCurrentLevelChanged(int oldValue, int newValue)
+    {
+        UpdateUI();
+        OnLevelChanged?.Invoke(newValue);
     }
     
     void OnClientConnected(ulong clientId)
@@ -265,7 +323,7 @@ public class DungeonProgressManager : NetworkBehaviour
         if (progressText != null)
         {
             int totalPlayers = GetTotalPlayers();
-            progressText.text = $"Игроков на финише: {playersAtEnd.Value}/{totalPlayers}";
+            progressText.text = $"Уровень {currentLevel.Value}. Игроков на финише: {playersAtEnd.Value}/{totalPlayers}";
             
             if (levelCompleted.Value)
             {
@@ -310,4 +368,5 @@ public class DungeonProgressManager : NetworkBehaviour
     public int GetPlayersAtEnd() => playersAtEnd.Value;
     public bool IsLevelCompleted() => levelCompleted.Value;
     public int GetTotalPlayersCount() => GetTotalPlayers();
+    public int GetCurrentLevel() => currentLevel.Value;
 }

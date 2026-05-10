@@ -7,15 +7,43 @@ public class Button: NetworkBehaviour
     public Renderer buttonRenderer;
 
     private Door targetDoor;
+    private NetworkVariable<DoorColor> syncedButtonColor = new NetworkVariable<DoorColor>(
+        DoorColor.Red,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
 
-    private void Start()
+    public override void OnNetworkSpawn()
     {
+        syncedButtonColor.OnValueChanged += OnButtonColorChanged;
+        buttonColor = syncedButtonColor.Value;
         ApplyColor();
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        syncedButtonColor.OnValueChanged -= OnButtonColorChanged;
     }
 
     public void SetTargetDoor(Door door)
     {
         targetDoor = door;
+    }
+
+    public void SetButtonColor(DoorColor color)
+    {
+        buttonColor = color;
+
+        if (IsServer)
+            syncedButtonColor.Value = color;
+
+        ApplyColor();
+    }
+
+    void OnButtonColorChanged(DoorColor oldValue, DoorColor newValue)
+    {
+        buttonColor = newValue;
+        ApplyColor();
     }
 
     void ApplyColor()
@@ -41,7 +69,11 @@ public class Button: NetworkBehaviour
         if (other.CompareTag("Player") && targetDoor != null)
         {
             targetDoor.OpenDoorServerRpc();
-            Destroy(this.gameObject);
+
+            if (TryGetComponent<NetworkObject>(out var networkObject) && networkObject.IsSpawned)
+                networkObject.Despawn();
+            else
+                Destroy(gameObject);
         }
     }
 }

@@ -44,6 +44,9 @@ public class CaveDungeonGenerator : NetworkBehaviour
 
     private List<GameObject> spawnedObjects = new List<GameObject>();
     private Task generationTask;
+    private int baseWidth;
+    private int baseHeight;
+    private bool baseDimensionsInitialized;
 
     // ================= NETWORK =================
 
@@ -65,9 +68,27 @@ public class CaveDungeonGenerator : NetworkBehaviour
 
     private async Task GenerateDungeonAsync()
     {
+        EnsureBaseDimensions();
+
         await GenerateAsync();
         await BuildAsync();
         await PositionPlayersAsync();
+    }
+
+    public async Task RegenerateDungeonForLevelAsync(
+        int level,
+        int widthIncreasePerLevel,
+        int heightIncreasePerLevel,
+        int maxWidth,
+        int maxHeight)
+    {
+        if (!IsServer) return;
+
+        EnsureBaseDimensions();
+        ApplyLevelSize(level, widthIncreasePerLevel, heightIncreasePerLevel, maxWidth, maxHeight);
+
+        generationTask = GenerateDungeonAsync();
+        await generationTask;
     }
 
     async void OnClientConnected(ulong clientId)
@@ -138,6 +159,52 @@ public class CaveDungeonGenerator : NetworkBehaviour
 
         while (height % 4 != 1)
             height += 2;
+    }
+
+    void EnsureBaseDimensions()
+    {
+        if (baseDimensionsInitialized)
+            return;
+
+        NormalizeMazeDimensions();
+        baseWidth = width;
+        baseHeight = height;
+        baseDimensionsInitialized = true;
+    }
+
+    void ApplyLevelSize(int level, int widthIncreasePerLevel, int heightIncreasePerLevel, int maxWidth, int maxHeight)
+    {
+        int progressionLevel = Mathf.Max(1, level) - 1;
+        width = ClampToProgressionSize(baseWidth + progressionLevel * Mathf.Max(0, widthIncreasePerLevel), 13, maxWidth);
+        height = ClampToProgressionSize(baseHeight + progressionLevel * Mathf.Max(0, heightIncreasePerLevel), 9, maxHeight);
+    }
+
+    int ClampToProgressionSize(int value, int minValue, int maxValue)
+    {
+        int normalized = NormalizeProgressionDimension(value, minValue);
+
+        if (maxValue <= 0)
+            return normalized;
+
+        int normalizedMax = NormalizeProgressionDimension(maxValue, minValue);
+
+        while (normalized > normalizedMax && normalized > minValue)
+            normalized -= 4;
+
+        return Mathf.Max(minValue, normalized);
+    }
+
+    int NormalizeProgressionDimension(int value, int minValue)
+    {
+        value = Mathf.Max(minValue, value);
+
+        if (value % 2 == 0)
+            value++;
+
+        while (value % 4 != 1)
+            value += 2;
+
+        return value;
     }
 
     void GenerateSideGrowingTree(Vector2Int seed, int minX, int maxX)
@@ -501,10 +568,15 @@ public class CaveDungeonGenerator : NetworkBehaviour
             Button leftButton = leftButtonObj.GetComponent<Button>();
             Button rightButton = rightButtonObj.GetComponent<Button>();
 
-            // Перекрёстная логика
-            leftButton.buttonColor = DoorColor.Blue;
-            rightButton.buttonColor = DoorColor.Red;
+            if (leftButton == null || rightButton == null)
+            {
+                Debug.LogError("Button prefab must have a Button component.");
+                return;
+            }
 
+            // Перекрёстная логика
+            leftButton.SetButtonColor(DoorColor.Blue);
+            rightButton.SetButtonColor(DoorColor.Red);
             leftButton.SetTargetDoor(rightDoor);
             rightButton.SetTargetDoor(leftDoor);
         }
@@ -711,10 +783,23 @@ public class CaveDungeonGenerator : NetworkBehaviour
         if (netObj != null && !netObj.IsSpawned)
         {
             netObj.Spawn();
+            ShowToConnectedClients(netObj);
         }
 
         spawnedObjects.Add(obj);
         return obj;
+    }
+
+    void ShowToConnectedClients(NetworkObject netObj)
+    {
+        if (NetworkManager.Singleton == null)
+            return;
+
+        foreach (ulong clientId in NetworkManager.Singleton.ConnectedClientsIds)
+        {
+            if (!netObj.IsNetworkVisibleTo(clientId))
+                netObj.NetworkShow(clientId);
+        }
     }
 
     void Cleanup()
@@ -724,7 +809,13 @@ public class CaveDungeonGenerator : NetworkBehaviour
             if (!o) continue;
 
             if (o.TryGetComponent<NetworkObject>(out var netObj) && netObj.IsSpawned)
+            {
                 netObj.Despawn();
+            }
+            else
+            {
+                Destroy(o);
+            }
         }
         spawnedObjects.Clear();
     }

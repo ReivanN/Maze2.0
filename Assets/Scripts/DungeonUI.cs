@@ -29,6 +29,8 @@ public class DungeonUI : MonoBehaviour
         {
             progressManager.OnProgressUpdated += UpdateProgress;
             progressManager.OnLevelCompleted += ShowVictoryScreen;
+            progressManager.OnLevelChanged += SetCurrentLevel;
+            currentLevel = progressManager.GetCurrentLevel();
         }
         
         UpdateLevelDisplay();
@@ -105,8 +107,12 @@ public class DungeonUI : MonoBehaviour
         
         HideVictoryScreen();
         
-        // Переход на следующий уровень
-        currentLevel++;
+        UpdateLevelDisplay();
+    }
+
+    void SetCurrentLevel(int level)
+    {
+        currentLevel = level;
         UpdateLevelDisplay();
     }
     
@@ -124,6 +130,7 @@ public class DungeonUI : MonoBehaviour
         {
             progressManager.OnProgressUpdated -= UpdateProgress;
             progressManager.OnLevelCompleted -= ShowVictoryScreen;
+            progressManager.OnLevelChanged -= SetCurrentLevel;
         }
     }
 }
