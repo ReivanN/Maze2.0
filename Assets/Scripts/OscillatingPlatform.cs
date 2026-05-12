@@ -1,7 +1,8 @@
 using System.Collections;
+using Unity.Netcode;
 using UnityEngine;
 
-public class OscillatingPlatform : MonoBehaviour
+public class OscillatingPlatform : NetworkBehaviour
 {
     [Header("Activation")]
     [SerializeField] private string playerTag = "Player";
@@ -27,21 +28,34 @@ public class OscillatingPlatform : MonoBehaviour
     private Renderer[] platformRenderers;
 
     private Coroutine fallRoutine;
+    private Coroutine visualRoutine;
     private float shakeTimer;
     private bool isUnavailable;
 
     private void Awake()
     {
-        initialPosition = transform.position;
-        initialRotation = transform.rotation;
         platformColliders = GetComponentsInChildren<Collider>();
         platformRenderers = GetComponentsInChildren<Renderer>();
 
         rotationAxis = rotationAxis.sqrMagnitude > 0f ? rotationAxis.normalized : Vector3.forward;
     }
 
+    public override void OnNetworkSpawn()
+    {
+        initialPosition = transform.position;
+        initialRotation = transform.rotation;
+        RespawnLocal();
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        StopPlatformCoroutines();
+    }
+
     private void Update()
     {
+        if (!IsServer) return;
+
         if (useOverlapDetection)
             CheckPlayerOnTop();
     }
@@ -58,6 +72,7 @@ public class OscillatingPlatform : MonoBehaviour
 
     private void TryActivate(Collider playerCollider, Collision collision)
     {
+        if (!IsServer) return;
         if (isUnavailable || fallRoutine != null) return;
         if (!playerCollider.CompareTag(playerTag)) return;
         if (requirePlayerOnTop && collision != null && !IsStandingOnTop(collision)) return;
@@ -116,6 +131,33 @@ public class OscillatingPlatform : MonoBehaviour
 
     private IEnumerator FallRoutine()
     {
+        StartFallClientRpc();
+
+        yield return new WaitForSeconds(timeToFall);
+
+        yield return new WaitForSeconds(disappearDelay);
+
+        SetAvailable(false);
+        SetAvailableClientRpc(false);
+
+        yield return new WaitForSeconds(respawnDelay);
+
+        RespawnLocal();
+        RespawnClientRpc(initialPosition, initialRotation);
+        fallRoutine = null;
+    }
+
+    [ClientRpc]
+    private void StartFallClientRpc()
+    {
+        if (visualRoutine != null)
+            StopCoroutine(visualRoutine);
+
+        visualRoutine = StartCoroutine(FallVisualRoutine());
+    }
+
+    private IEnumerator FallVisualRoutine()
+    {
         shakeTimer = 0f;
 
         while (shakeTimer < timeToFall)
@@ -129,13 +171,22 @@ public class OscillatingPlatform : MonoBehaviour
             yield return null;
         }
 
-        yield return new WaitForSeconds(disappearDelay);
+        transform.rotation = initialRotation;
+        visualRoutine = null;
+    }
 
-        SetAvailable(false);
+    [ClientRpc]
+    private void SetAvailableClientRpc(bool available)
+    {
+        SetAvailable(available);
+    }
 
-        yield return new WaitForSeconds(respawnDelay);
-
-        Respawn();
+    [ClientRpc]
+    private void RespawnClientRpc(Vector3 position, Quaternion rotation)
+    {
+        initialPosition = position;
+        initialRotation = rotation;
+        RespawnLocal();
     }
 
     private void SetAvailable(bool available)
@@ -157,11 +208,12 @@ public class OscillatingPlatform : MonoBehaviour
         }
     }
 
-    private void Respawn()
+    private void RespawnLocal()
     {
+        StopVisualRoutine();
+
         transform.SetPositionAndRotation(initialPosition, initialRotation);
         shakeTimer = 0f;
-        fallRoutine = null;
 
         SetAvailable(true);
     }
@@ -169,21 +221,47 @@ public class OscillatingPlatform : MonoBehaviour
     [ContextMenu("Activate Fall")]
     public void ActivateFall()
     {
-        if (fallRoutine == null && !isUnavailable)
+        if (IsServer && fallRoutine == null && !isUnavailable)
             fallRoutine = StartCoroutine(FallRoutine());
     }
 
     [ContextMenu("Force Respawn")]
     public void ForceRespawn()
     {
-        if (fallRoutine != null)
-            StopCoroutine(fallRoutine);
+        if (!IsServer) return;
 
-        Respawn();
+        if (fallRoutine != null)
+        {
+            StopCoroutine(fallRoutine);
+            fallRoutine = null;
+        }
+
+        RespawnLocal();
+        RespawnClientRpc(initialPosition, initialRotation);
     }
 
     public float GetDangerProgress()
     {
         return Mathf.Clamp01(shakeTimer / timeToFall);
+    }
+
+    private void StopPlatformCoroutines()
+    {
+        if (fallRoutine != null)
+        {
+            StopCoroutine(fallRoutine);
+            fallRoutine = null;
+        }
+
+        StopVisualRoutine();
+    }
+
+    private void StopVisualRoutine()
+    {
+        if (visualRoutine != null)
+        {
+            StopCoroutine(visualRoutine);
+            visualRoutine = null;
+        }
     }
 }
