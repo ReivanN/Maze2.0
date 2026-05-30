@@ -3,7 +3,7 @@ using Unity.Netcode;
 
 public class EndZoneTrigger : NetworkBehaviour
 {
-    [SerializeField] private float triggerRadius = 3f;
+    [SerializeField] private float triggerRadius = 1f;
     [SerializeField] private ParticleSystem activationEffect;
     [SerializeField] private Light zoneLight;
     

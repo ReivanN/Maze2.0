@@ -152,6 +152,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::EndZoneTrigger
   ShowTopMostFoldoutHeaderGroup: 1
-  triggerRadius: 3
+  triggerRadius: 1
   activationEffect: {fileID: 0}
   zoneLight: {fileID: 0}

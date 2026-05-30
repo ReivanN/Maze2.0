@@ -12,6 +12,7 @@ public class DungeonProgressManager : NetworkBehaviour
     [SerializeField] private float checkInterval = 0.5f;
     [SerializeField] private float nextLevelDelay = 3f;
     [SerializeField] private int minPlayersToComplete = 2;
+    [SerializeField] private float endZoneRadius = 1f;
 
     [Header("Прогрессия уровней")]
     [SerializeField] private int widthIncreasePerLevel = 4;
@@ -137,18 +138,11 @@ public class DungeonProgressManager : NetworkBehaviour
         if (endZoneObject == null || levelCompleted.Value) return;
         
         var currentPlayersInZone = new List<ulong>();
-        float endZoneRadius = 3f; // Радиус зоны финиша
-        
         foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
         {
             if (client.PlayerObject == null) continue;
-            
-            float distance = Vector3.Distance(
-                client.PlayerObject.transform.position,
-                endZoneObject.transform.position
-            );
-            
-            if (distance <= endZoneRadius)
+
+            if (IsPlayerInsideEndZone(client.PlayerObject.transform.position))
             {
                 currentPlayersInZone.Add(client.ClientId);
             }
@@ -169,6 +163,15 @@ public class DungeonProgressManager : NetworkBehaviour
         {
             CompleteLevel();
         }
+    }
+
+    bool IsPlayerInsideEndZone(Vector3 playerPosition)
+    {
+        Vector3 endPosition = endZoneObject.transform.position;
+        Vector2 playerXZ = new Vector2(playerPosition.x, playerPosition.z);
+        Vector2 endXZ = new Vector2(endPosition.x, endPosition.z);
+
+        return Vector2.Distance(playerXZ, endXZ) <= endZoneRadius;
     }
     
     void CompleteLevel()
@@ -347,7 +350,7 @@ public class DungeonProgressManager : NetworkBehaviour
         if (endZoneObject != null && IsServer)
         {
             Gizmos.color = new Color(0, 1, 0, 0.3f);
-            Gizmos.DrawSphere(endZoneObject.transform.position, 3f);
+            Gizmos.DrawSphere(endZoneObject.transform.position, endZoneRadius);
             
             Gizmos.color = Color.green;
             foreach (var playerId in playersInEndZone)

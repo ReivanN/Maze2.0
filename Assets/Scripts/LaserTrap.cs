@@ -8,10 +8,13 @@ public class LaserTrap : NetworkBehaviour
     [SerializeField] private Vector3 localDirection = Vector3.forward;
     [SerializeField] private float maxDistance = 8f;
     [SerializeField] private float hitRadius = 0.2f;
+    [SerializeField] private float laserHeight = 3f;
+    [SerializeField] private float laserThickness = 0.35f;
     [SerializeField] private LayerMask hitMask = ~0;
 
     [Header("Visual")]
     [SerializeField] private LineRenderer lineRenderer;
+    [SerializeField] private int verticalBeamCount = 6;
     [SerializeField] private Color activeColor = Color.red;
     [SerializeField] private Color disabledColor = Color.gray;
 
@@ -21,6 +24,36 @@ public class LaserTrap : NetworkBehaviour
 
     private NetworkVariable<bool> isActive = new NetworkVariable<bool>(
         true,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    private NetworkVariable<bool> hasConfiguredSegment = new NetworkVariable<bool>(
+        false,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    private NetworkVariable<Vector3> configuredStart = new NetworkVariable<Vector3>(
+        Vector3.zero,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    private NetworkVariable<Vector3> configuredEnd = new NetworkVariable<Vector3>(
+        Vector3.zero,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    private NetworkVariable<float> configuredHeight = new NetworkVariable<float>(
+        0f,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    private NetworkVariable<float> configuredThickness = new NetworkVariable<float>(
+        0f,
         NetworkVariableReadPermission.Everyone,
         NetworkVariableWritePermission.Server
     );
@@ -46,12 +79,22 @@ public class LaserTrap : NetworkBehaviour
         if (lineRenderer == null)
             lineRenderer = GetComponent<LineRenderer>();
 
-        if (lineRenderer != null)
-            lineRenderer.positionCount = 2;
+        ResetLineRendererToSingleBeam();
     }
 
     private void Update()
     {
+        if (hasConfiguredSegment.Value)
+        {
+            UpdateBarrierVisual(configuredStart.Value, configuredEnd.Value, GetConfiguredHeight());
+
+            if (!IsServer || !isActive.Value) return;
+            if (Time.time - lastHitTime < hitCooldown) return;
+
+            TryRespawnPlayersInBarrier(configuredStart.Value, configuredEnd.Value, GetConfiguredHeight(), GetConfiguredThickness());
+            return;
+        }
+
         Vector3 origin = laserOrigin.position;
         Vector3 direction = laserOrigin.TransformDirection(localDirection.normalized);
         Vector3 forwardEnd = GetLaserEnd(origin, direction, out RaycastHit forwardHit);
@@ -62,8 +105,26 @@ public class LaserTrap : NetworkBehaviour
         if (!IsServer || !isActive.Value) return;
         if (Time.time - lastHitTime < hitCooldown) return;
 
-        TryRespawnHitPlayer(forwardHit);
+        if (TryRespawnHitPlayer(forwardHit))
+            return;
+
         TryRespawnHitPlayer(backwardHit);
+    }
+
+    public void ConfigureSegment(Vector3 start, Vector3 end)
+    {
+        ConfigureBarrier(start, end, laserHeight, laserThickness);
+    }
+
+    public void ConfigureBarrier(Vector3 start, Vector3 end, float height, float thickness)
+    {
+        if (!IsServer) return;
+
+        configuredStart.Value = start;
+        configuredEnd.Value = end;
+        configuredHeight.Value = Mathf.Max(0.1f, height);
+        configuredThickness.Value = Mathf.Max(0.05f, thickness);
+        hasConfiguredSegment.Value = true;
     }
 
     private Vector3 GetLaserEnd(Vector3 start, Vector3 direction, out RaycastHit hit)
@@ -82,21 +143,92 @@ public class LaserTrap : NetworkBehaviour
         lineRenderer.enabled = isActive.Value;
         if (!isActive.Value) return;
 
+        if (lineRenderer.positionCount != 2)
+            ResetLineRendererToSingleBeam();
+
         lineRenderer.SetPosition(0, start);
         lineRenderer.SetPosition(1, end);
     }
 
-    private void TryRespawnHitPlayer(RaycastHit hit)
+    private void UpdateBarrierVisual(Vector3 start, Vector3 end, float height)
     {
-        if (hit.collider == null || !hit.collider.CompareTag("Player"))
+        if (lineRenderer == null) return;
+
+        lineRenderer.enabled = isActive.Value;
+        if (!isActive.Value) return;
+
+        int beamCount = Mathf.Max(2, verticalBeamCount);
+        int positionCount = beamCount * 2;
+
+        if (lineRenderer.positionCount != positionCount)
+            lineRenderer.positionCount = positionCount;
+
+        for (int i = 0; i < beamCount; i++)
+        {
+            float t = beamCount == 1 ? 0f : (float)i / (beamCount - 1);
+            Vector3 heightOffset = Vector3.up * (height * t);
+            int index = i * 2;
+
+            if (i % 2 == 0)
+            {
+                lineRenderer.SetPosition(index, start + heightOffset);
+                lineRenderer.SetPosition(index + 1, end + heightOffset);
+            }
+            else
+            {
+                lineRenderer.SetPosition(index, end + heightOffset);
+                lineRenderer.SetPosition(index + 1, start + heightOffset);
+            }
+        }
+    }
+
+    private void TryRespawnPlayersInBarrier(Vector3 start, Vector3 end, float height, float thickness)
+    {
+        Vector3 segment = end - start;
+        float length = segment.magnitude;
+
+        if (length <= 0.01f)
             return;
 
-        NetworkObject playerNetworkObject = hit.collider.GetComponentInParent<NetworkObject>();
+        Vector3 direction = segment / length;
+        Vector3 center = (start + end) * 0.5f + Vector3.up * (height * 0.5f);
+        Vector3 halfExtents = new Vector3(thickness * 0.5f, height * 0.5f, length * 0.5f);
+        Quaternion rotation = Quaternion.LookRotation(direction, Vector3.up);
+        Collider[] hits = Physics.OverlapBox(center, halfExtents, rotation, hitMask, QueryTriggerInteraction.Ignore);
+
+        foreach (Collider hit in hits)
+        {
+            if (TryRespawnHitPlayer(hit))
+                return;
+        }
+    }
+
+    private bool TryRespawnHitPlayer(Collider hitCollider)
+    {
+        if (hitCollider == null || !hitCollider.CompareTag("Player"))
+            return false;
+
+        NetworkObject playerNetworkObject = hitCollider.GetComponentInParent<NetworkObject>();
         if (playerNetworkObject == null)
-            return;
+            return false;
 
         lastHitTime = Time.time;
         RespawnPlayer(playerNetworkObject.OwnerClientId);
+        return true;
+    }
+
+    private bool TryRespawnHitPlayer(RaycastHit hit)
+    {
+        if (hit.collider == null || !hit.collider.CompareTag("Player"))
+            return false;
+
+        NetworkObject playerNetworkObject = hit.collider.GetComponentInParent<NetworkObject>();
+        if (playerNetworkObject == null)
+            return false;
+
+        lastHitTime = Time.time;
+        RespawnPlayer(playerNetworkObject.OwnerClientId);
+        return true;
     }
 
     private void RespawnPlayer(ulong clientId)
@@ -181,10 +313,30 @@ public class LaserTrap : NetworkBehaviour
 
     private void ApplyActiveState(bool active)
     {
-        if (lineRenderer == null) return;
+        Color color = active ? activeColor : disabledColor;
 
-        lineRenderer.startColor = active ? activeColor : disabledColor;
-        lineRenderer.endColor = active ? activeColor : disabledColor;
-        lineRenderer.enabled = active;
+        if (lineRenderer != null)
+        {
+            lineRenderer.startColor = color;
+            lineRenderer.endColor = color;
+            lineRenderer.enabled = active && !hasConfiguredSegment.Value;
+        }
+
+    }
+
+    private float GetConfiguredHeight()
+    {
+        return configuredHeight.Value > 0f ? configuredHeight.Value : laserHeight;
+    }
+
+    private float GetConfiguredThickness()
+    {
+        return configuredThickness.Value > 0f ? configuredThickness.Value : laserThickness;
+    }
+
+    private void ResetLineRendererToSingleBeam()
+    {
+        if (lineRenderer != null)
+            lineRenderer.positionCount = 2;
     }
 }

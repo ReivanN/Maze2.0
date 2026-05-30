@@ -28,7 +28,7 @@ Transform:
   m_GameObject: {fileID: 8283847408958263004}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 29.18057, y: 134.24684, z: 19.61601}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -186,10 +186,13 @@ MonoBehaviour:
   localDirection: {x: 0, y: 0, z: 1}
   maxDistance: 12
   hitRadius: 0.2
+  laserHeight: 3
+  laserThickness: 0.35
   hitMask:
     serializedVersion: 2
     m_Bits: 4294967295
   lineRenderer: {fileID: 3262311874323922311}
+  verticalBeamCount: 6
   activeColor: {r: 1, g: 0, b: 0, a: 1}
   disabledColor: {r: 0.5, g: 0.5, b: 0.5, a: 1}
   respawnHeightOffset: 1

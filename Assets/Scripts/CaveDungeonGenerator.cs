@@ -29,7 +29,10 @@ public class CaveDungeonGenerator : NetworkBehaviour
     [SerializeField] private int fallingPlatformRowLengthMax = 4;
 
     [Header("Лазерная ловушка")]
-    [SerializeField] private float laserHeightOffset = 1f;
+    [SerializeField] private float laserBottomHeightOffset = 0.35f;
+    [SerializeField] private float laserBarrierHeight = 3f;
+    [SerializeField] private float laserBarrierThickness = 0.45f;
+    [SerializeField] private float laserWallPadding = 0.15f;
     [SerializeField] private float laserSwitchHeightOffset = 0.1f;
 
     [Header("Player")]
@@ -614,8 +617,8 @@ public class CaveDungeonGenerator : NetworkBehaviour
         if (laserBeamDirection == Vector2Int.zero)
             return;
 
-        Vector3 laserPosition = CellCenterToWorld(entryCell);
-        laserPosition.y = laserHeightOffset;
+        Vector3 laserPosition = CellToWorld(entryCell);
+        laserPosition.y = laserBottomHeightOffset;
 
         Vector3 laserDirection = CellDirectionToWorld(laserBeamDirection).normalized;
 
@@ -627,8 +630,51 @@ public class CaveDungeonGenerator : NetworkBehaviour
         LaserTrap laserTrap = laserObj.GetComponent<LaserTrap>();
         LaserSwitch laserSwitch = switchObj.GetComponent<LaserSwitch>();
 
+        if (laserTrap != null && TryGetLaserSegment(entryCell, laserBeamDirection, out Vector3 segmentStart, out Vector3 segmentEnd))
+            laserTrap.ConfigureBarrier(segmentStart, segmentEnd, laserBarrierHeight, laserBarrierThickness);
+
         if (laserTrap != null && laserSwitch != null)
             laserSwitch.SetTargetLaser(laserTrap);
+    }
+
+    bool TryGetLaserSegment(Vector2Int originCell, Vector2Int beamDirection, out Vector3 segmentStart, out Vector3 segmentEnd)
+    {
+        segmentStart = default;
+        segmentEnd = default;
+
+        if (beamDirection == Vector2Int.zero)
+            return false;
+
+        Vector2Int negativeCell = FindLastWalkableCell(originCell, -beamDirection);
+        Vector2Int positiveCell = FindLastWalkableCell(originCell, beamDirection);
+        Vector3 worldDirection = CellDirectionToWorld(beamDirection).normalized;
+        float edgeOffset = Mathf.Max(0f, cellSize * 0.5f - laserWallPadding);
+
+        segmentStart = CellToWorld(negativeCell) - worldDirection * edgeOffset;
+        segmentEnd = CellToWorld(positiveCell) + worldDirection * edgeOffset;
+        float floorY = CellToWorld(originCell).y;
+        segmentStart.y = floorY + laserBottomHeightOffset;
+        segmentEnd.y = floorY + laserBottomHeightOffset;
+
+        return true;
+    }
+
+    Vector2Int FindLastWalkableCell(Vector2Int originCell, Vector2Int direction)
+    {
+        Vector2Int current = originCell;
+
+        while (true)
+        {
+            Vector2Int next = current + direction;
+
+            if (next.x <= 0 || next.y <= 0 || next.x >= width - 1 || next.y >= height - 1)
+                return current;
+
+            if (map[next.x, next.y] != 1)
+                return current;
+
+            current = next;
+        }
     }
 
     bool TryGetDeadEndEntry(Vector2Int deadEndCell, out Vector2Int entryCell)
