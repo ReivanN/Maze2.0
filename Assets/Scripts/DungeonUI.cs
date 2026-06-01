@@ -12,7 +12,7 @@ public class DungeonUI : MonoBehaviour
     [SerializeField] private GameObject countdownPanel;
     [SerializeField] private TMP_Text countdownText;
     
-    [Header("Настройки")]
+    [Header("Settings")]
     [SerializeField] private Color progressLowColor = Color.red;
     [SerializeField] private Color progressHighColor = Color.green;
     
@@ -73,7 +73,6 @@ public class DungeonUI : MonoBehaviour
             victoryPanel.SetActive(true);
         }
         
-        // Запускаем отсчет до нового уровня
         StartCountdown();
     }
     
@@ -120,7 +119,7 @@ public class DungeonUI : MonoBehaviour
     {
         if (levelText != null)
         {
-            levelText.text = $"Уровень: {currentLevel}";
+            levelText.text = $"Level: {currentLevel}";
         }
     }
     

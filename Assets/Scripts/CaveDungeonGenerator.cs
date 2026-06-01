@@ -596,8 +596,8 @@ public class CaveDungeonGenerator : NetworkBehaviour
         if (laserTrapPrefab == null || laserSwitchPrefab == null)
             return;
 
-        bool canBlockLeftKey = rightFreeDeadEnds.Count > 0;
-        bool canBlockRightKey = leftFreeDeadEnds.Count > 0;
+        bool canBlockLeftKey = HasSwitchCandidate(rightFreeDeadEnds, leftKeyCell, rightKeyCell, true);
+        bool canBlockRightKey = HasSwitchCandidate(leftFreeDeadEnds, leftKeyCell, rightKeyCell, false);
 
         if (!canBlockLeftKey && !canBlockRightKey)
             return;
@@ -605,9 +605,16 @@ public class CaveDungeonGenerator : NetworkBehaviour
         bool blockLeftSide = canBlockLeftKey && (!canBlockRightKey || Random.value > 0.5f);
 
         Vector2Int protectedCell = blockLeftSide ? leftKeyCell : rightKeyCell;
-        List<Vector2Int> switchCandidates = blockLeftSide ? rightFreeDeadEnds : leftFreeDeadEnds;
+        List<Vector2Int> switchCandidates = GetSwitchCandidates(
+            blockLeftSide ? rightFreeDeadEnds : leftFreeDeadEnds,
+            leftKeyCell,
+            rightKeyCell,
+            blockLeftSide);
 
         if (!TryGetDeadEndEntry(protectedCell, out Vector2Int entryCell))
+            return;
+
+        if (switchCandidates.Count == 0)
             return;
 
         Vector2Int switchCell = switchCandidates[Random.Range(0, switchCandidates.Count)];
@@ -635,6 +642,73 @@ public class CaveDungeonGenerator : NetworkBehaviour
 
         if (laserTrap != null && laserSwitch != null)
             laserSwitch.SetTargetLaser(laserTrap);
+    }
+
+    bool HasSwitchCandidate(List<Vector2Int> preferredCandidates, Vector2Int leftKeyCell, Vector2Int rightKeyCell, bool useRightSide)
+    {
+        return GetSwitchCandidates(preferredCandidates, leftKeyCell, rightKeyCell, useRightSide).Count > 0;
+    }
+
+    List<Vector2Int> GetSwitchCandidates(List<Vector2Int> preferredCandidates, Vector2Int leftKeyCell, Vector2Int rightKeyCell, bool useRightSide)
+    {
+        HashSet<Vector2Int> excluded = new HashSet<Vector2Int>
+        {
+            leftKeyCell,
+            rightKeyCell,
+            startA,
+            startB,
+            exitCell
+        };
+
+        List<Vector2Int> candidates = new List<Vector2Int>();
+        foreach (Vector2Int candidate in preferredCandidates)
+        {
+            if (IsValidLaserSwitchCell(candidate, useRightSide, excluded))
+                candidates.Add(candidate);
+        }
+
+        if (candidates.Count > 0)
+            return candidates;
+
+        int centerX = width / 2;
+        int minX = useRightSide ? centerX + 1 : 1;
+        int maxX = useRightSide ? width - 2 : centerX - 1;
+
+        for (int x = minX; x <= maxX; x++)
+        {
+            for (int y = 1; y < height - 1; y++)
+            {
+                Vector2Int cell = new Vector2Int(x, y);
+                if (IsValidLaserSwitchCell(cell, useRightSide, excluded))
+                    candidates.Add(cell);
+            }
+        }
+
+        return candidates;
+    }
+
+    bool IsValidLaserSwitchCell(Vector2Int cell, bool useRightSide, HashSet<Vector2Int> excluded)
+    {
+        if (excluded.Contains(cell))
+            return false;
+
+        if (!IsInside(cell.x, cell.y))
+            return false;
+
+        if (map[cell.x, cell.y] != 1)
+            return false;
+
+        int centerX = width / 2;
+        if (useRightSide && cell.x <= centerX)
+            return false;
+
+        if (!useRightSide && cell.x >= centerX)
+            return false;
+
+        if (fallingPlatformCells.Contains(cell))
+            return false;
+
+        return true;
     }
 
     bool TryGetLaserSegment(Vector2Int originCell, Vector2Int beamDirection, out Vector3 segmentStart, out Vector3 segmentEnd)

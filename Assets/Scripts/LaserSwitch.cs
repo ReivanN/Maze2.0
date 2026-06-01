@@ -10,6 +10,7 @@ public class LaserSwitch : NetworkBehaviour
     [SerializeField] private Transform visualRoot;
     [SerializeField] private float pressDepth = 0.12f;
     [SerializeField] private float pressDuration = 0.12f;
+    [SerializeField] private Vector3 minimumTriggerSize = new Vector3(1.5f, 1.2f, 1.5f);
 
     private readonly NetworkVariable<bool> isPressed = new NetworkVariable<bool>(
         false,
@@ -27,6 +28,7 @@ public class LaserSwitch : NetworkBehaviour
             visualRoot = transform;
 
         releasedLocalPosition = visualRoot.localPosition;
+        EnsureUsableTrigger();
     }
 
     public override void OnNetworkSpawn()
@@ -44,7 +46,7 @@ public class LaserSwitch : NetworkBehaviour
     {
         if (!IsServer) return;
         if (used && oneTimeUse) return;
-        if (!other.CompareTag("Player")) return;
+        if (!IsPlayerCollider(other)) return;
         if (targetLaser == null) return;
 
         isPressed.Value = true;
@@ -60,6 +62,34 @@ public class LaserSwitch : NetworkBehaviour
     public void SetTargetLaser(LaserTrap laserTrap)
     {
         targetLaser = laserTrap;
+    }
+
+    private bool IsPlayerCollider(Collider other)
+    {
+        if (other == null)
+            return false;
+
+        if (other.CompareTag("Player"))
+            return true;
+
+        NetworkObject networkObject = other.GetComponentInParent<NetworkObject>();
+        return networkObject != null && networkObject.CompareTag("Player");
+    }
+
+    private void EnsureUsableTrigger()
+    {
+        BoxCollider boxCollider = GetComponent<BoxCollider>();
+        if (boxCollider == null)
+            boxCollider = gameObject.AddComponent<BoxCollider>();
+
+        boxCollider.isTrigger = true;
+        boxCollider.enabled = true;
+        boxCollider.size = new Vector3(
+            Mathf.Max(boxCollider.size.x, minimumTriggerSize.x),
+            Mathf.Max(boxCollider.size.y, minimumTriggerSize.y),
+            Mathf.Max(boxCollider.size.z, minimumTriggerSize.z)
+        );
+        boxCollider.center = new Vector3(boxCollider.center.x, Mathf.Max(boxCollider.center.y, minimumTriggerSize.y * 0.5f), boxCollider.center.z);
     }
 
     private void OnPressedChanged(bool oldValue, bool newValue)

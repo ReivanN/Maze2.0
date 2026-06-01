@@ -205,11 +205,7 @@ public class LaserTrap : NetworkBehaviour
 
     private bool TryRespawnHitPlayer(Collider hitCollider)
     {
-        if (hitCollider == null || !hitCollider.CompareTag("Player"))
-            return false;
-
-        NetworkObject playerNetworkObject = hitCollider.GetComponentInParent<NetworkObject>();
-        if (playerNetworkObject == null)
+        if (!TryGetPlayerNetworkObject(hitCollider, out NetworkObject playerNetworkObject))
             return false;
 
         lastHitTime = Time.time;
@@ -219,16 +215,23 @@ public class LaserTrap : NetworkBehaviour
 
     private bool TryRespawnHitPlayer(RaycastHit hit)
     {
-        if (hit.collider == null || !hit.collider.CompareTag("Player"))
-            return false;
-
-        NetworkObject playerNetworkObject = hit.collider.GetComponentInParent<NetworkObject>();
-        if (playerNetworkObject == null)
+        if (!TryGetPlayerNetworkObject(hit.collider, out NetworkObject playerNetworkObject))
             return false;
 
         lastHitTime = Time.time;
         RespawnPlayer(playerNetworkObject.OwnerClientId);
         return true;
+    }
+
+    private bool TryGetPlayerNetworkObject(Collider collider, out NetworkObject playerNetworkObject)
+    {
+        playerNetworkObject = null;
+
+        if (collider == null)
+            return false;
+
+        playerNetworkObject = collider.GetComponentInParent<NetworkObject>();
+        return playerNetworkObject != null && playerNetworkObject.CompareTag("Player");
     }
 
     private void RespawnPlayer(ulong clientId)

@@ -111,8 +111,8 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 9.999999, y: 2.220446e-16, z: 9.999999}
-  m_Center: {x: 0, y: 0, z: 0}
+  m_Size: {x: 9.999999, y: 1.2, z: 9.999999}
+  m_Center: {x: 0, y: 0.6, z: 0}
 --- !u!114 &9174273965387600555
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -157,3 +157,4 @@ MonoBehaviour:
   visualRoot: {fileID: 0}
   pressDepth: 0.08
   pressDuration: 0.12
+  minimumTriggerSize: {x: 1.5, y: 1.2, z: 1.5}

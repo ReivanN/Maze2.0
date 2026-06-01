@@ -18,6 +18,8 @@ using UnityEngine.UI;
 public class RelayManager : MonoBehaviour
 {
     private const string StartGameMessageName = "Maze.StartGame";
+    private const string StartTimerMessageName = "Maze.StartTimer";
+    private const int RequiredPlayersToStart = 2;
 
     [Header("Legacy scene references")]
     [SerializeField] private TextMeshProUGUI textMeshProUGUI;
@@ -37,18 +39,25 @@ public class RelayManager : MonoBehaviour
     private GameObject joinPanel;
     private GameObject lobbyPanel;
     private GameObject loadingPanel;
+    private GameObject pausePanel;
     private TMP_InputField joinCodeInput;
     private TextMeshProUGUI statusLabel;
     private TextMeshProUGUI lobbyCodeLabel;
     private TextMeshProUGUI lobbyPlayersLabel;
     private TextMeshProUGUI loadingLabel;
+    private TextMeshProUGUI timerLabel;
     private UnityEngine.UI.Button startGameButton;
     private Canvas legacyCanvas;
+    private GameObject menuBackground;
 
     private string currentJoinCode;
     private bool servicesReady;
     private bool flowBusy;
     private bool gameplayStarted;
+    private bool gameplayReady;
+    private bool timerStarted;
+    private bool pauseMenuOpen;
+    private double timerStartNetworkTime;
 
     private async void Start()
     {
@@ -57,7 +66,7 @@ public class RelayManager : MonoBehaviour
         BuildMenu();
         SetLegacyCanvasVisible(false);
         SetGameplayInput(false);
-        ShowMainMenu("Готово к подключению");
+        ShowMainMenu("Ready to connect");
 
         await EnsureServicesReady();
     }
@@ -71,7 +80,16 @@ public class RelayManager : MonoBehaviour
         NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientListChanged;
 
         if (NetworkManager.Singleton.CustomMessagingManager != null)
+        {
             NetworkManager.Singleton.CustomMessagingManager.UnregisterNamedMessageHandler(StartGameMessageName);
+            NetworkManager.Singleton.CustomMessagingManager.UnregisterNamedMessageHandler(StartTimerMessageName);
+        }
+    }
+
+    private void Update()
+    {
+        UpdateGameTimer();
+        HandlePauseInput();
     }
 
     public async void StartRelay()
@@ -80,7 +98,7 @@ public class RelayManager : MonoBehaviour
             return;
 
         flowBusy = true;
-        SetStatus("Создаем комнату...");
+        SetStatus("Creating room...");
 
         try
         {
@@ -88,7 +106,7 @@ public class RelayManager : MonoBehaviour
 
             if (string.IsNullOrEmpty(currentJoinCode))
             {
-                ShowMainMenu("Не удалось запустить хост");
+                ShowMainMenu("Could not start host");
                 return;
             }
 
@@ -97,12 +115,12 @@ public class RelayManager : MonoBehaviour
 
             RegisterNetworkCallbacks();
             await StartVoiceChat(currentJoinCode);
-            ShowLobby(true, "Комната создана");
+            ShowLobby(true, "Room created. Waiting for another player");
         }
         catch (Exception e) when (e is RelayServiceException || e is RequestFailedException)
         {
-            Debug.LogError($"Ошибка создания Relay: {e.Message}");
-            ShowMainMenu("Ошибка создания комнаты");
+            Debug.LogError($"Relay room creation failed: {e.Message}");
+            ShowMainMenu("Room creation failed");
         }
         finally
         {
@@ -164,7 +182,7 @@ public class RelayManager : MonoBehaviour
     public void OpenJoinPanel()
     {
         ShowPanel(joinPanel);
-        SetStatus("Введите код комнаты от хоста");
+        SetStatus("Enter the room code from the host");
         joinCodeInput?.Select();
     }
 
@@ -172,6 +190,13 @@ public class RelayManager : MonoBehaviour
     {
         if (!NetworkManager.Singleton.IsHost || gameplayStarted)
             return;
+
+        if (GetConnectedPlayersCount() < RequiredPlayersToStart)
+        {
+            SetStatus("Waiting for a second player");
+            UpdateLobbyPlayers();
+            return;
+        }
 
         using FastBufferWriter writer = new FastBufferWriter(1, Allocator.Temp);
         NetworkManager.Singleton.CustomMessagingManager.SendNamedMessageToAll(StartGameMessageName, writer);
@@ -185,8 +210,27 @@ public class RelayManager : MonoBehaviour
 
         currentJoinCode = string.Empty;
         gameplayStarted = false;
+        gameplayReady = false;
+        timerStarted = false;
         SetGameplayInput(false);
-        ShowMainMenu("Вы вышли из комнаты");
+        ShowMainMenu("You left the room");
+    }
+
+    public void ResumeGame()
+    {
+        SetPauseMenuVisible(false);
+    }
+
+    public void ExitGame()
+    {
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+            NetworkManager.Singleton.Shutdown();
+
+        Application.Quit();
+
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#endif
     }
 
     private async Task JoinRelayWithCode(string joinCode)
@@ -197,35 +241,35 @@ public class RelayManager : MonoBehaviour
         joinCode = joinCode.Trim().ToUpperInvariant();
         if (string.IsNullOrEmpty(joinCode))
         {
-            SetStatus("Введите код комнаты");
+            SetStatus("Enter a room code");
             return;
         }
 
         flowBusy = true;
-        SetStatus("Подключаемся...");
+        SetStatus("Connecting...");
 
         try
         {
             bool success = await StartClientWithRelay(joinCode);
 
             if (textMeshProUGUI != null)
-                textMeshProUGUI.text = success ? "Подключение..." : "Ошибка подключения";
+                textMeshProUGUI.text = success ? "Connecting..." : "Connection failed";
 
             if (!success)
             {
-                SetStatus("Ошибка подключения");
+                SetStatus("Connection failed");
                 return;
             }
 
             currentJoinCode = joinCode;
             RegisterNetworkCallbacks();
             await StartVoiceChat(joinCode);
-            ShowLobby(false, "Подключено. Ждем старта хоста");
+            ShowLobby(false, "Connected. Waiting for the host to start");
         }
         catch (Exception e) when (e is RelayServiceException || e is RequestFailedException)
         {
-            Debug.LogError($"Ошибка подключения к Relay: {e.Message}");
-            SetStatus("Неверный код или ошибка подключения");
+            Debug.LogError($"Relay connection failed: {e.Message}");
+            SetStatus("Invalid code or connection failed");
         }
         finally
         {
@@ -254,7 +298,7 @@ public class RelayManager : MonoBehaviour
 
         if (voiceManager == null)
         {
-            Debug.LogWarning("VoiceManager не найден в сцене");
+            Debug.LogWarning("VoiceManager was not found in the scene");
             return;
         }
 
@@ -274,13 +318,20 @@ public class RelayManager : MonoBehaviour
         NetworkManager.Singleton.OnClientDisconnectCallback += OnClientListChanged;
 
         NetworkManager.Singleton.CustomMessagingManager.UnregisterNamedMessageHandler(StartGameMessageName);
+        NetworkManager.Singleton.CustomMessagingManager.UnregisterNamedMessageHandler(StartTimerMessageName);
         NetworkManager.Singleton.CustomMessagingManager.RegisterNamedMessageHandler(StartGameMessageName, OnStartGameMessage);
+        NetworkManager.Singleton.CustomMessagingManager.RegisterNamedMessageHandler(StartTimerMessageName, OnStartTimerMessage);
         UpdateLobbyPlayers();
+        ApplyGameplayInputState();
     }
 
     private void OnClientListChanged(ulong clientId)
     {
         UpdateLobbyPlayers();
+        ApplyGameplayInputState();
+
+        if (NetworkManager.Singleton.IsServer && gameplayReady && !timerStarted && GetConnectedPlayersCount() >= RequiredPlayersToStart)
+            BroadcastGameTimerStart();
     }
 
     private void OnStartGameMessage(ulong senderClientId, FastBufferReader reader)
@@ -294,6 +345,8 @@ public class RelayManager : MonoBehaviour
             return;
 
         gameplayStarted = true;
+        gameplayReady = false;
+        SetStatus("Loading...");
         StartCoroutine(LoadingRoutine());
     }
 
@@ -308,15 +361,18 @@ public class RelayManager : MonoBehaviour
             elapsed += Time.deltaTime;
             float progress = Mathf.Clamp01(elapsed / loadingDuration);
             if (loadingLabel != null)
-                loadingLabel.text = $"Загрузка лабиринта... {Mathf.RoundToInt(progress * 100f)}%";
+                loadingLabel.text = $"Loading maze... {Mathf.RoundToInt(progress * 100f)}%";
             yield return null;
         }
 
-        if (menuCanvas != null)
-            menuCanvas.gameObject.SetActive(false);
+        HideMenuForGameplay();
 
+        gameplayReady = true;
         SetLegacyCanvasVisible(false);
-        SetGameplayInput(true);
+        ApplyGameplayInputState();
+
+        if (NetworkManager.Singleton.IsServer && GetConnectedPlayersCount() >= RequiredPlayersToStart)
+            BroadcastGameTimerStart();
     }
 
     private void SetGameplayInput(bool enabled)
@@ -340,10 +396,113 @@ public class RelayManager : MonoBehaviour
         }
     }
 
+    private void ApplyGameplayInputState()
+    {
+        bool canMove = gameplayReady && timerStarted;
+        SetGameplayInput(canMove);
+
+        if (gameplayReady && !canMove)
+            SetStatus("Waiting for a second player");
+    }
+
+    private void HandlePauseInput()
+    {
+        if (!gameplayStarted || Keyboard.current == null)
+            return;
+
+        if (Keyboard.current.escapeKey.wasPressedThisFrame)
+            SetPauseMenuVisible(!pauseMenuOpen);
+    }
+
+    private void SetPauseMenuVisible(bool visible)
+    {
+        pauseMenuOpen = visible;
+
+        if (menuCanvas != null)
+            menuCanvas.gameObject.SetActive(true);
+
+        if (pausePanel != null)
+            pausePanel.SetActive(visible);
+
+        if (menuBackground != null)
+            menuBackground.SetActive(false);
+
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+    }
+
+    private void BroadcastGameTimerStart()
+    {
+        double startTime = NetworkManager.Singleton.ServerTime.Time;
+        using FastBufferWriter writer = new FastBufferWriter(sizeof(double), Allocator.Temp);
+        writer.WriteValueSafe(startTime);
+        NetworkManager.Singleton.CustomMessagingManager.SendNamedMessageToAll(StartTimerMessageName, writer);
+        StartGameTimer(startTime);
+    }
+
+    private void OnStartTimerMessage(ulong senderClientId, FastBufferReader reader)
+    {
+        reader.ReadValueSafe(out double startTime);
+        StartGameTimer(startTime);
+    }
+
+    private void StartGameTimer(double startTime)
+    {
+        timerStartNetworkTime = startTime;
+        timerStarted = true;
+        UpdateGameTimer();
+        ApplyGameplayInputState();
+    }
+
+    private void UpdateGameTimer()
+    {
+        if (timerLabel == null || !timerStarted || NetworkManager.Singleton == null)
+            return;
+
+        double elapsedSeconds = Math.Max(0d, NetworkManager.Singleton.LocalTime.Time - timerStartNetworkTime);
+        timerLabel.text = $"Time: {FormatTime(elapsedSeconds)}";
+    }
+
+    private string FormatTime(double totalSeconds)
+    {
+        TimeSpan time = TimeSpan.FromSeconds(totalSeconds);
+        return $"{(int)time.TotalMinutes:00}:{time.Seconds:00}.{time.Milliseconds / 10:00}";
+    }
+
+    public float GetElapsedGameTime()
+    {
+        if (!timerStarted || NetworkManager.Singleton == null)
+            return 0f;
+
+        return (float)Math.Max(0d, NetworkManager.Singleton.LocalTime.Time - timerStartNetworkTime);
+    }
+
+    public string GetFormattedElapsedGameTime()
+    {
+        return FormatTime(GetElapsedGameTime());
+    }
+
+    public void StartNewLevelTimerForAll()
+    {
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
+            return;
+
+        BroadcastGameTimerStart();
+    }
+
     private void ShowMainMenu(string message)
     {
         if (menuCanvas != null)
             menuCanvas.gameObject.SetActive(true);
+
+        if (menuBackground != null)
+            menuBackground.SetActive(true);
+
+        if (timerLabel != null)
+            timerLabel.gameObject.SetActive(false);
+
+        if (pausePanel != null)
+            pausePanel.SetActive(false);
 
         ShowPanel(mainMenuPanel);
         SetStatus(message);
@@ -355,7 +514,7 @@ public class RelayManager : MonoBehaviour
         SetStatus(message);
 
         if (lobbyCodeLabel != null)
-            lobbyCodeLabel.text = string.IsNullOrEmpty(currentJoinCode) ? "Код появится здесь" : currentJoinCode;
+            lobbyCodeLabel.text = string.IsNullOrEmpty(currentJoinCode) ? "Code appears here" : currentJoinCode;
 
         if (startGameButton != null)
             startGameButton.gameObject.SetActive(isHost);
@@ -369,6 +528,9 @@ public class RelayManager : MonoBehaviour
         joinPanel?.SetActive(panel == joinPanel);
         lobbyPanel?.SetActive(panel == lobbyPanel);
         loadingPanel?.SetActive(panel == loadingPanel);
+
+        if (panel != pausePanel)
+            pausePanel?.SetActive(false);
     }
 
     private void UpdateLobbyPlayers()
@@ -376,11 +538,19 @@ public class RelayManager : MonoBehaviour
         if (lobbyPlayersLabel == null || NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening)
             return;
 
-        int connectedPlayers = NetworkManager.Singleton.IsServer
-            ? NetworkManager.Singleton.ConnectedClientsList.Count
-            : 1;
+        int connectedPlayers = GetConnectedPlayersCount();
 
-        lobbyPlayersLabel.text = $"Игроки: {connectedPlayers}/{maxPlayers + 1}";
+        lobbyPlayersLabel.text = $"Players: {connectedPlayers}/{maxPlayers + 1}";
+
+        if (startGameButton != null)
+            startGameButton.interactable = connectedPlayers >= RequiredPlayersToStart;
+
+        if (!gameplayStarted && NetworkManager.Singleton.IsHost)
+        {
+            SetStatus(connectedPlayers >= RequiredPlayersToStart
+                ? "Ready to start"
+                : "Waiting for a second player");
+        }
     }
 
     private void SetStatus(string message)
@@ -416,12 +586,15 @@ public class RelayManager : MonoBehaviour
         joinPanel = CreatePanel("Join Room");
         lobbyPanel = CreatePanel("Lobby");
         loadingPanel = CreatePanel("Loading");
+        pausePanel = CreatePanel("Pause Menu");
 
         BuildMainMenu();
         BuildJoinPanel();
         BuildLobbyPanel();
         BuildLoadingPanel();
+        BuildPausePanel();
         BuildStatusLabel();
+        BuildTimerLabel();
     }
 
     private void BuildMainMenu()
@@ -429,48 +602,59 @@ public class RelayManager : MonoBehaviour
         TextMeshProUGUI title = CreateText(mainMenuPanel.transform, gameTitle, 72, FontStyles.Bold, TextAlignmentOptions.Center);
         title.rectTransform.sizeDelta = new Vector2(760, 100);
 
-        TextMeshProUGUI subtitle = CreateText(mainMenuPanel.transform, "Соберите друзей и пройдите лабиринт вместе", 28, FontStyles.Normal, TextAlignmentOptions.Center);
+        TextMeshProUGUI subtitle = CreateText(mainMenuPanel.transform, "Gather your friends and escape the maze together", 28, FontStyles.Normal, TextAlignmentOptions.Center);
         subtitle.rectTransform.sizeDelta = new Vector2(860, 56);
 
-        CreateButton(mainMenuPanel.transform, "Создать комнату", StartRelay);
-        CreateButton(mainMenuPanel.transform, "Подключиться", OpenJoinPanel);
+        CreateButton(mainMenuPanel.transform, "Create Room", StartRelay);
+        CreateButton(mainMenuPanel.transform, "Join Room", OpenJoinPanel);
     }
 
     private void BuildJoinPanel()
     {
-        TextMeshProUGUI title = CreateText(joinPanel.transform, "Подключение", 54, FontStyles.Bold, TextAlignmentOptions.Center);
+        TextMeshProUGUI title = CreateText(joinPanel.transform, "Join Room", 54, FontStyles.Bold, TextAlignmentOptions.Center);
         title.rectTransform.sizeDelta = new Vector2(760, 80);
 
-        joinCodeInput = CreateInput(joinPanel.transform, "КОД КОМНАТЫ");
-        CreateButton(joinPanel.transform, "Войти в комнату", JoinRelay);
-        CreateButton(joinPanel.transform, "Назад", () => ShowMainMenu("Готово к подключению"));
+        joinCodeInput = CreateInput(joinPanel.transform, "ROOM CODE");
+        CreateButton(joinPanel.transform, "Connect", JoinRelay);
+        CreateButton(joinPanel.transform, "Back", () => ShowMainMenu("Ready to connect"));
     }
 
     private void BuildLobbyPanel()
     {
-        TextMeshProUGUI title = CreateText(lobbyPanel.transform, "Лобби", 54, FontStyles.Bold, TextAlignmentOptions.Center);
+        TextMeshProUGUI title = CreateText(lobbyPanel.transform, "Lobby", 54, FontStyles.Bold, TextAlignmentOptions.Center);
         title.rectTransform.sizeDelta = new Vector2(760, 80);
 
-        TextMeshProUGUI label = CreateText(lobbyPanel.transform, "Код комнаты", 24, FontStyles.Normal, TextAlignmentOptions.Center);
+        TextMeshProUGUI label = CreateText(lobbyPanel.transform, "Room Code", 24, FontStyles.Normal, TextAlignmentOptions.Center);
         label.rectTransform.sizeDelta = new Vector2(760, 42);
 
         lobbyCodeLabel = CreateText(lobbyPanel.transform, "------", 64, FontStyles.Bold, TextAlignmentOptions.Center);
         lobbyCodeLabel.rectTransform.sizeDelta = new Vector2(760, 90);
 
-        lobbyPlayersLabel = CreateText(lobbyPanel.transform, $"Игроки: 1/{maxPlayers + 1}", 28, FontStyles.Normal, TextAlignmentOptions.Center);
+        lobbyPlayersLabel = CreateText(lobbyPanel.transform, $"Players: 1/{maxPlayers + 1}", 28, FontStyles.Normal, TextAlignmentOptions.Center);
         lobbyPlayersLabel.rectTransform.sizeDelta = new Vector2(760, 48);
 
-        startGameButton = CreateButton(lobbyPanel.transform, "Начать игру", StartGameAsHost);
-        CreateButton(lobbyPanel.transform, "Выйти", LeaveRoom);
+        startGameButton = CreateButton(lobbyPanel.transform, "Start Game", StartGameAsHost);
+        CreateButton(lobbyPanel.transform, "Leave", LeaveRoom);
     }
 
     private void BuildLoadingPanel()
     {
-        TextMeshProUGUI title = CreateText(loadingPanel.transform, "Подготовка", 54, FontStyles.Bold, TextAlignmentOptions.Center);
+        TextMeshProUGUI title = CreateText(loadingPanel.transform, "Preparing", 54, FontStyles.Bold, TextAlignmentOptions.Center);
         title.rectTransform.sizeDelta = new Vector2(760, 80);
 
-        loadingLabel = CreateText(loadingPanel.transform, "Загрузка лабиринта... 0%", 30, FontStyles.Normal, TextAlignmentOptions.Center);
+        loadingLabel = CreateText(loadingPanel.transform, "Loading maze... 0%", 30, FontStyles.Normal, TextAlignmentOptions.Center);
         loadingLabel.rectTransform.sizeDelta = new Vector2(760, 64);
+    }
+
+    private void BuildPausePanel()
+    {
+        TextMeshProUGUI title = CreateText(pausePanel.transform, "Paused", 54, FontStyles.Bold, TextAlignmentOptions.Center);
+        title.rectTransform.sizeDelta = new Vector2(760, 80);
+
+        CreateButton(pausePanel.transform, "Resume", ResumeGame);
+        CreateButton(pausePanel.transform, "Exit Game", ExitGame);
+
+        pausePanel.SetActive(false);
     }
 
     private void BuildStatusLabel()
@@ -482,6 +666,17 @@ public class RelayManager : MonoBehaviour
         statusLabel.rectTransform.anchoredPosition = new Vector2(0f, 72f);
         statusLabel.rectTransform.sizeDelta = new Vector2(900, 48);
         statusLabel.color = new Color(1f, 1f, 1f, 0.78f);
+    }
+
+    private void BuildTimerLabel()
+    {
+        timerLabel = CreateText(screenRoot, "Time: 00:00.00", 28, FontStyles.Bold, TextAlignmentOptions.Right);
+        timerLabel.rectTransform.anchorMin = new Vector2(1f, 1f);
+        timerLabel.rectTransform.anchorMax = new Vector2(1f, 1f);
+        timerLabel.rectTransform.pivot = new Vector2(1f, 1f);
+        timerLabel.rectTransform.anchoredPosition = new Vector2(-36f, -28f);
+        timerLabel.rectTransform.sizeDelta = new Vector2(360, 48);
+        timerLabel.gameObject.SetActive(false);
     }
 
     private GameObject CreatePanel(string panelName)
@@ -505,17 +700,43 @@ public class RelayManager : MonoBehaviour
 
     private void AddBackground(RectTransform parent)
     {
-        GameObject background = new GameObject("Menu Background", typeof(RectTransform), typeof(Image));
-        background.transform.SetParent(parent, false);
+        menuBackground = new GameObject("Menu Background", typeof(RectTransform), typeof(Image));
+        menuBackground.transform.SetParent(parent, false);
 
-        RectTransform rectTransform = background.GetComponent<RectTransform>();
+        RectTransform rectTransform = menuBackground.GetComponent<RectTransform>();
         rectTransform.anchorMin = Vector2.zero;
         rectTransform.anchorMax = Vector2.one;
         rectTransform.offsetMin = Vector2.zero;
         rectTransform.offsetMax = Vector2.zero;
 
-        Image image = background.GetComponent<Image>();
+        Image image = menuBackground.GetComponent<Image>();
         image.color = new Color(0.03f, 0.04f, 0.05f, 0.94f);
+    }
+
+    private void HideMenuForGameplay()
+    {
+        mainMenuPanel?.SetActive(false);
+        joinPanel?.SetActive(false);
+        lobbyPanel?.SetActive(false);
+        loadingPanel?.SetActive(false);
+        pausePanel?.SetActive(false);
+        pauseMenuOpen = false;
+
+        if (menuBackground != null)
+            menuBackground.SetActive(false);
+
+        if (timerLabel != null)
+            timerLabel.gameObject.SetActive(true);
+
+        SetStatus(string.Empty);
+    }
+
+    private int GetConnectedPlayersCount()
+    {
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening)
+            return 0;
+
+        return NetworkManager.Singleton.ConnectedClientsList.Count;
     }
 
     private void CacheLegacyCanvas()

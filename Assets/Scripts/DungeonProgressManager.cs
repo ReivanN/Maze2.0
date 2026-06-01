@@ -7,20 +7,20 @@ using System.Collections;
 
 public class DungeonProgressManager : NetworkBehaviour
 {
-    [Header("Настройки лабиринта")]
+    [Header("Dungeon Settings")]
     [SerializeField] private CaveDungeonGenerator dungeonGenerator;
     [SerializeField] private float checkInterval = 0.5f;
     [SerializeField] private float nextLevelDelay = 3f;
     [SerializeField] private int minPlayersToComplete = 2;
     [SerializeField] private float endZoneRadius = 1f;
 
-    [Header("Прогрессия уровней")]
+    [Header("Level Progression")]
     [SerializeField] private int widthIncreasePerLevel = 4;
     [SerializeField] private int heightIncreasePerLevel = 4;
     [SerializeField] private int maxWidth = 0;
     [SerializeField] private int maxHeight = 0;
     
-    [Header("Визуальная обратная связь")]
+    [Header("Feedback")]
     [SerializeField] private GameObject victoryEffectPrefab;
     [SerializeField] private AudioClip victorySound;
     [SerializeField] private Material endPointActiveMaterial;
@@ -28,7 +28,6 @@ public class DungeonProgressManager : NetworkBehaviour
     [SerializeField] private TextMeshProUGUI progressText;
     
     
-    // Сетевая синхронизация
     private NetworkVariable<int> playersAtEnd = new NetworkVariable<int>(
         0, 
         NetworkVariableReadPermission.Everyone,
@@ -46,13 +45,18 @@ public class DungeonProgressManager : NetworkBehaviour
         NetworkVariableReadPermission.Everyone,
         NetworkVariableWritePermission.Server
     );
+
+    private NetworkVariable<float> lastCompletionTime = new NetworkVariable<float>(
+        0f,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
     
     private List<ulong> playersInEndZone = new List<ulong>();
     private GameObject endZoneObject;
     private float checkTimer;
     private Coroutine nextLevelCoroutine;
     
-    // События для UI
     public System.Action<int, int> OnProgressUpdated;
     public System.Action OnLevelCompleted;
     public System.Action<int> OnLevelChanged;
@@ -61,18 +65,16 @@ public class DungeonProgressManager : NetworkBehaviour
     {
         if (IsServer)
         {
-            // Находим конечную точку после генерации
             Invoke(nameof(FindEndZone), 0.5f);
             
-            // Подписываемся на события подключения игроков
             NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
             NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
         }
         
-        // Подписываемся на изменения сетевых переменных
         playersAtEnd.OnValueChanged += OnPlayersAtEndChanged;
         levelCompleted.OnValueChanged += OnLevelCompletedChanged;
         currentLevel.OnValueChanged += OnCurrentLevelChanged;
+        lastCompletionTime.OnValueChanged += OnLastCompletionTimeChanged;
         
         UpdateUI();
         OnLevelChanged?.Invoke(currentLevel.Value);
@@ -92,6 +94,7 @@ public class DungeonProgressManager : NetworkBehaviour
         playersAtEnd.OnValueChanged -= OnPlayersAtEndChanged;
         levelCompleted.OnValueChanged -= OnLevelCompletedChanged;
         currentLevel.OnValueChanged -= OnCurrentLevelChanged;
+        lastCompletionTime.OnValueChanged -= OnLastCompletionTimeChanged;
     }
     
     void Update()
@@ -108,11 +111,9 @@ public class DungeonProgressManager : NetworkBehaviour
     
     void FindEndZone()
     {
-        // Ищем объект конечной точки по тегу или имени
         endZoneObject = GameObject.FindGameObjectWithTag("EndPoint");
         if (endZoneObject == null)
         {
-            // Альтернативный поиск
             var endObjects = FindObjectsOfType<GameObject>()
                 .Where(go => go.name.Contains("End") || go.name.Contains("Finish"))
                 .ToList();
@@ -125,11 +126,11 @@ public class DungeonProgressManager : NetworkBehaviour
         
         if (endZoneObject != null)
         {
-            Debug.Log($"Конечная точка найдена: {endZoneObject.name}");
+            Debug.Log($"End point found: {endZoneObject.name}");
         }
         else
         {
-            Debug.LogWarning("Конечная точка не найдена!");
+            Debug.LogWarning("End point was not found!");
         }
     }
     
@@ -148,13 +149,10 @@ public class DungeonProgressManager : NetworkBehaviour
             }
         }
         
-        // Обновляем список игроков в зоне
         playersInEndZone = currentPlayersInZone;
         
-        // Синхронизируем с клиентами
         playersAtEnd.Value = playersInEndZone.Count;
         
-        // Проверяем условие победы
         int totalPlayers = NetworkManager.Singleton.ConnectedClientsList.Count;
         int requiredPlayers = Mathf.Max(minPlayersToComplete, totalPlayers);
 
@@ -178,13 +176,15 @@ public class DungeonProgressManager : NetworkBehaviour
     {
         if (levelCompleted.Value) return;
         
-        Debug.Log("Уровень пройден! Все игроки на финише.");
+        Debug.Log("Level completed! All players reached the finish.");
+        RelayManager relayManager = FindObjectOfType<RelayManager>();
+        if (relayManager != null)
+            lastCompletionTime.Value = relayManager.GetElapsedGameTime();
+
         levelCompleted.Value = true;
         
-        // Запускаем визуальные эффекты
         PlayVictoryEffectsClientRpc(endZoneObject.transform.position);
         
-        // Ждем немного перед генерацией нового уровня
         if (nextLevelCoroutine != null)
         {
             StopCoroutine(nextLevelCoroutine);
@@ -204,14 +204,13 @@ public class DungeonProgressManager : NetworkBehaviour
     {
         if (!IsServer) return;
         
-        Debug.Log("Генерируем новый уровень...");
+        Debug.Log("Generating a new level...");
         
-        // Сбрасываем состояние
         playersInEndZone.Clear();
         playersAtEnd.Value = 0;
+        lastCompletionTime.Value = 0f;
         currentLevel.Value++;
         
-        // Генерируем новый лабиринт
         if (dungeonGenerator != null)
         {
             await dungeonGenerator.RegenerateDungeonForLevelAsync(
@@ -229,13 +228,15 @@ public class DungeonProgressManager : NetworkBehaviour
         FindEndZone();
         levelCompleted.Value = false;
         
-        // Обновляем UI
         UpdateLevelStartedClientRpc(currentLevel.Value);
+
+        RelayManager relayManager = FindObjectOfType<RelayManager>();
+        if (relayManager != null)
+            relayManager.StartNewLevelTimerForAll();
     }
     
     void RegenerateDungeonManually()
     {
-        // Альтернативный способ если генератор не работает через RPC
         if (dungeonGenerator == null)
         {
             dungeonGenerator = FindObjectOfType<CaveDungeonGenerator>();
@@ -243,7 +244,6 @@ public class DungeonProgressManager : NetworkBehaviour
         
         if (dungeonGenerator != null)
         {
-            // Вызываем методы генерации напрямую
             var method = typeof(CaveDungeonGenerator).GetMethod("Generate", 
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             method?.Invoke(dungeonGenerator, null);
@@ -261,7 +261,6 @@ public class DungeonProgressManager : NetworkBehaviour
     [ClientRpc]
     void PlayVictoryEffectsClientRpc(Vector3 position)
     {
-        // Визуальные эффекты на клиентах
         if (victoryEffectPrefab != null)
         {
             Instantiate(victoryEffectPrefab, position, Quaternion.identity);
@@ -272,7 +271,6 @@ public class DungeonProgressManager : NetworkBehaviour
             AudioSource.PlayClipAtPoint(victorySound, position);
         }
         
-        // Можно добавить UI анимации
         OnLevelCompleted?.Invoke();
     }
     
@@ -299,7 +297,7 @@ public class DungeonProgressManager : NetworkBehaviour
     {
         if (newValue)
         {
-            Debug.Log("Уровень завершен!");
+            Debug.Log("Level completed!");
         }
 
         UpdateUI();
@@ -309,6 +307,11 @@ public class DungeonProgressManager : NetworkBehaviour
     {
         UpdateUI();
         OnLevelChanged?.Invoke(newValue);
+    }
+
+    void OnLastCompletionTimeChanged(float oldValue, float newValue)
+    {
+        UpdateUI();
     }
     
     void OnClientConnected(ulong clientId)
@@ -326,11 +329,11 @@ public class DungeonProgressManager : NetworkBehaviour
         if (progressText != null)
         {
             int totalPlayers = GetTotalPlayers();
-            progressText.text = $"Уровень {currentLevel.Value}. Игроков на финише: {playersAtEnd.Value}/{totalPlayers}";
+            progressText.text = $"Level {currentLevel.Value}. Players at finish: {playersAtEnd.Value}/{totalPlayers}";
             
             if (levelCompleted.Value)
             {
-                progressText.text = "Уровень пройден! Генерация нового...";
+                progressText.text = $"Level completed in {FormatTime(lastCompletionTime.Value)}. Generating next level...";
             }
         }
     }
@@ -344,7 +347,6 @@ public class DungeonProgressManager : NetworkBehaviour
         return 0;
     }
     
-    // Методы для визуализации зоны финиша (для отладки)
     void OnDrawGizmos()
     {
         if (endZoneObject != null && IsServer)
@@ -367,9 +369,15 @@ public class DungeonProgressManager : NetworkBehaviour
         }
     }
     
-    // Public методы для UI
     public int GetPlayersAtEnd() => playersAtEnd.Value;
     public bool IsLevelCompleted() => levelCompleted.Value;
     public int GetTotalPlayersCount() => GetTotalPlayers();
     public int GetCurrentLevel() => currentLevel.Value;
+    public float GetLastCompletionTime() => lastCompletionTime.Value;
+
+    string FormatTime(float totalSeconds)
+    {
+        System.TimeSpan time = System.TimeSpan.FromSeconds(Mathf.Max(0f, totalSeconds));
+        return $"{(int)time.TotalMinutes:00}:{time.Seconds:00}.{time.Milliseconds / 10:00}";
+    }
 }

@@ -66,7 +66,7 @@ public class Button: NetworkBehaviour
     {
         if (!IsServer) return;
 
-        if (other.CompareTag("Player") && targetDoor != null)
+        if (IsPlayerCollider(other) && targetDoor != null)
         {
             targetDoor.OpenDoorServerRpc();
 
@@ -75,5 +75,17 @@ public class Button: NetworkBehaviour
             else
                 Destroy(gameObject);
         }
+    }
+
+    private bool IsPlayerCollider(Collider other)
+    {
+        if (other == null)
+            return false;
+
+        if (other.CompareTag("Player"))
+            return true;
+
+        NetworkObject networkObject = other.GetComponentInParent<NetworkObject>();
+        return networkObject != null && networkObject.CompareTag("Player");
     }
 }
