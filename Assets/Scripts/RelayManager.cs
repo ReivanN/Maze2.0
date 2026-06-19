@@ -26,7 +26,7 @@ public class RelayManager : MonoBehaviour
     [SerializeField] private TMP_InputField _inputField;
 
     [Header("Relay")]
-    [SerializeField] private int maxPlayers = 4;
+    [SerializeField] private int maxPlayers = 2;
     [SerializeField] private VoiceManager voiceManager;
 
     [Header("Menu")]
@@ -102,7 +102,7 @@ public class RelayManager : MonoBehaviour
 
         try
         {
-            currentJoinCode = await StartHostWithRelay(maxPlayers);
+            currentJoinCode = await StartHostWithRelay(Mathf.Max(1, maxPlayers - 1));
 
             if (string.IsNullOrEmpty(currentJoinCode))
             {
@@ -540,7 +540,7 @@ public class RelayManager : MonoBehaviour
 
         int connectedPlayers = GetConnectedPlayersCount();
 
-        lobbyPlayersLabel.text = $"Players: {connectedPlayers}/{maxPlayers + 1}";
+        lobbyPlayersLabel.text = $"Players: {connectedPlayers}/{maxPlayers}";
 
         if (startGameButton != null)
             startGameButton.interactable = connectedPlayers >= RequiredPlayersToStart;
@@ -602,7 +602,7 @@ public class RelayManager : MonoBehaviour
         TextMeshProUGUI title = CreateText(mainMenuPanel.transform, gameTitle, 72, FontStyles.Bold, TextAlignmentOptions.Center);
         title.rectTransform.sizeDelta = new Vector2(760, 100);
 
-        TextMeshProUGUI subtitle = CreateText(mainMenuPanel.transform, "Gather your friends and escape the maze together", 28, FontStyles.Normal, TextAlignmentOptions.Center);
+        TextMeshProUGUI subtitle = CreateText(mainMenuPanel.transform, "Gather one friend and escape the maze together", 28, FontStyles.Normal, TextAlignmentOptions.Center);
         subtitle.rectTransform.sizeDelta = new Vector2(860, 56);
 
         CreateButton(mainMenuPanel.transform, "Create Room", StartRelay);
@@ -630,7 +630,7 @@ public class RelayManager : MonoBehaviour
         lobbyCodeLabel = CreateText(lobbyPanel.transform, "------", 64, FontStyles.Bold, TextAlignmentOptions.Center);
         lobbyCodeLabel.rectTransform.sizeDelta = new Vector2(760, 90);
 
-        lobbyPlayersLabel = CreateText(lobbyPanel.transform, $"Players: 1/{maxPlayers + 1}", 28, FontStyles.Normal, TextAlignmentOptions.Center);
+        lobbyPlayersLabel = CreateText(lobbyPanel.transform, $"Players: 1/{maxPlayers}", 28, FontStyles.Normal, TextAlignmentOptions.Center);
         lobbyPlayersLabel.rectTransform.sizeDelta = new Vector2(760, 48);
 
         startGameButton = CreateButton(lobbyPanel.transform, "Start Game", StartGameAsHost);

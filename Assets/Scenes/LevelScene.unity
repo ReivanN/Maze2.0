@@ -1649,7 +1649,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::RelayManager
   textMeshProUGUI: {fileID: 1083264964}
   _inputField: {fileID: 1624727993}
-  maxPlayers: 4
+  maxPlayers: 2
   voiceManager: {fileID: 0}
 --- !u!4 &953218659
 Transform:
