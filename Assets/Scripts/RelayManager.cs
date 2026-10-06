@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Threading.Tasks;
 using TMPro;
 using Unity.Collections;
@@ -30,25 +29,34 @@ public class RelayManager : MonoBehaviour
     [SerializeField] private VoiceManager voiceManager;
 
     [Header("Menu")]
-    [SerializeField] private string gameTitle = "Maze 2.0";
-    [SerializeField] private float loadingDuration = 1.5f;
+    [SerializeField] private string gameTitle = "Maze Together";
 
     private Canvas menuCanvas;
     private RectTransform screenRoot;
     private GameObject mainMenuPanel;
     private GameObject joinPanel;
     private GameObject lobbyPanel;
-    private GameObject loadingPanel;
     private GameObject pausePanel;
+    private GameObject displaySettingsPanel;
     private TMP_InputField joinCodeInput;
     private TextMeshProUGUI statusLabel;
     private TextMeshProUGUI lobbyCodeLabel;
     private TextMeshProUGUI lobbyPlayersLabel;
-    private TextMeshProUGUI loadingLabel;
     private TextMeshProUGUI timerLabel;
     private UnityEngine.UI.Button startGameButton;
+    private TextMeshProUGUI fullscreenButtonLabel;
+    private TextMeshProUGUI resolutionButtonLabel;
     private Canvas legacyCanvas;
     private GameObject menuBackground;
+    private readonly Vector2Int[] resolutionOptions =
+    {
+        new Vector2Int(1920, 1080),
+        new Vector2Int(1600, 900),
+        new Vector2Int(1366, 768),
+        new Vector2Int(1280, 720),
+        new Vector2Int(1024, 768),
+        new Vector2Int(800, 600)
+    };
 
     private string currentJoinCode;
     private bool servicesReady;
@@ -58,6 +66,7 @@ public class RelayManager : MonoBehaviour
     private bool timerStarted;
     private bool pauseMenuOpen;
     private double timerStartNetworkTime;
+    private int currentResolutionIndex;
 
     private async void Start()
     {
@@ -200,7 +209,7 @@ public class RelayManager : MonoBehaviour
 
         using FastBufferWriter writer = new FastBufferWriter(1, Allocator.Temp);
         NetworkManager.Singleton.CustomMessagingManager.SendNamedMessageToAll(StartGameMessageName, writer);
-        StartGameplayLoading();
+        StartGameplay();
     }
 
     public void LeaveRoom()
@@ -336,38 +345,17 @@ public class RelayManager : MonoBehaviour
 
     private void OnStartGameMessage(ulong senderClientId, FastBufferReader reader)
     {
-        StartGameplayLoading();
+        StartGameplay();
     }
 
-    private void StartGameplayLoading()
+    private void StartGameplay()
     {
         if (gameplayStarted)
             return;
 
         gameplayStarted = true;
-        gameplayReady = false;
-        SetStatus("Loading...");
-        StartCoroutine(LoadingRoutine());
-    }
-
-    private IEnumerator LoadingRoutine()
-    {
-        ShowPanel(loadingPanel);
-        SetGameplayInput(false);
-
-        float elapsed = 0f;
-        while (elapsed < loadingDuration)
-        {
-            elapsed += Time.deltaTime;
-            float progress = Mathf.Clamp01(elapsed / loadingDuration);
-            if (loadingLabel != null)
-                loadingLabel.text = $"Loading maze... {Mathf.RoundToInt(progress * 100f)}%";
-            yield return null;
-        }
-
-        HideMenuForGameplay();
-
         gameplayReady = true;
+        HideMenuForGameplay();
         SetLegacyCanvasVisible(false);
         ApplyGameplayInputState();
 
@@ -401,8 +389,8 @@ public class RelayManager : MonoBehaviour
         bool canMove = gameplayReady && timerStarted;
         SetGameplayInput(canMove);
 
-        if (gameplayReady && !canMove)
-            SetStatus("Waiting for a second player");
+        if (canMove)
+            SetStatus(string.Empty);
     }
 
     private void HandlePauseInput()
@@ -451,6 +439,7 @@ public class RelayManager : MonoBehaviour
         timerStartNetworkTime = startTime;
         timerStarted = true;
         UpdateGameTimer();
+        SetStatus(string.Empty);
         ApplyGameplayInputState();
     }
 
@@ -527,7 +516,7 @@ public class RelayManager : MonoBehaviour
         mainMenuPanel?.SetActive(panel == mainMenuPanel);
         joinPanel?.SetActive(panel == joinPanel);
         lobbyPanel?.SetActive(panel == lobbyPanel);
-        loadingPanel?.SetActive(panel == loadingPanel);
+        displaySettingsPanel?.SetActive(panel == mainMenuPanel);
 
         if (panel != pausePanel)
             pausePanel?.SetActive(false);
@@ -585,14 +574,13 @@ public class RelayManager : MonoBehaviour
         mainMenuPanel = CreatePanel("Main Menu");
         joinPanel = CreatePanel("Join Room");
         lobbyPanel = CreatePanel("Lobby");
-        loadingPanel = CreatePanel("Loading");
         pausePanel = CreatePanel("Pause Menu");
 
         BuildMainMenu();
         BuildJoinPanel();
         BuildLobbyPanel();
-        BuildLoadingPanel();
         BuildPausePanel();
+        BuildDisplaySettingsPanel();
         BuildStatusLabel();
         BuildTimerLabel();
     }
@@ -637,15 +625,6 @@ public class RelayManager : MonoBehaviour
         CreateButton(lobbyPanel.transform, "Leave", LeaveRoom);
     }
 
-    private void BuildLoadingPanel()
-    {
-        TextMeshProUGUI title = CreateText(loadingPanel.transform, "Preparing", 54, FontStyles.Bold, TextAlignmentOptions.Center);
-        title.rectTransform.sizeDelta = new Vector2(760, 80);
-
-        loadingLabel = CreateText(loadingPanel.transform, "Loading maze... 0%", 30, FontStyles.Normal, TextAlignmentOptions.Center);
-        loadingLabel.rectTransform.sizeDelta = new Vector2(760, 64);
-    }
-
     private void BuildPausePanel()
     {
         TextMeshProUGUI title = CreateText(pausePanel.transform, "Paused", 54, FontStyles.Bold, TextAlignmentOptions.Center);
@@ -655,6 +634,96 @@ public class RelayManager : MonoBehaviour
         CreateButton(pausePanel.transform, "Exit Game", ExitGame);
 
         pausePanel.SetActive(false);
+    }
+
+    private void BuildDisplaySettingsPanel()
+    {
+        displaySettingsPanel = new GameObject("Display Settings", typeof(RectTransform), typeof(VerticalLayoutGroup));
+        displaySettingsPanel.transform.SetParent(screenRoot, false);
+
+        RectTransform rectTransform = displaySettingsPanel.GetComponent<RectTransform>();
+        rectTransform.anchorMin = new Vector2(1f, 1f);
+        rectTransform.anchorMax = new Vector2(1f, 1f);
+        rectTransform.pivot = new Vector2(1f, 1f);
+        rectTransform.anchoredPosition = new Vector2(-36f, -28f);
+        rectTransform.sizeDelta = new Vector2(320, 170);
+
+        VerticalLayoutGroup layout = displaySettingsPanel.GetComponent<VerticalLayoutGroup>();
+        layout.childAlignment = TextAnchor.UpperRight;
+        layout.spacing = 10;
+        layout.padding = new RectOffset(0, 0, 0, 0);
+
+        TextMeshProUGUI title = CreateText(displaySettingsPanel.transform, "Display", 22, FontStyles.Bold, TextAlignmentOptions.Right);
+        title.rectTransform.sizeDelta = new Vector2(300, 34);
+
+        UnityEngine.UI.Button fullscreenButton = CreateButton(
+            displaySettingsPanel.transform,
+            string.Empty,
+            ToggleFullscreen,
+            new Vector2(300, 52),
+            20);
+        fullscreenButtonLabel = fullscreenButton.GetComponentInChildren<TextMeshProUGUI>();
+
+        UnityEngine.UI.Button resolutionButton = CreateButton(
+            displaySettingsPanel.transform,
+            string.Empty,
+            CycleResolution,
+            new Vector2(300, 52),
+            20);
+        resolutionButtonLabel = resolutionButton.GetComponentInChildren<TextMeshProUGUI>();
+
+        currentResolutionIndex = GetClosestResolutionIndex(Screen.width, Screen.height);
+        UpdateDisplaySettingsLabels();
+    }
+
+    private void ToggleFullscreen()
+    {
+        ApplyDisplaySettings(!Screen.fullScreen, currentResolutionIndex);
+    }
+
+    private void CycleResolution()
+    {
+        int nextIndex = (currentResolutionIndex + 1) % resolutionOptions.Length;
+        ApplyDisplaySettings(Screen.fullScreen, nextIndex);
+    }
+
+    private void ApplyDisplaySettings(bool fullscreen, int resolutionIndex)
+    {
+        currentResolutionIndex = Mathf.Clamp(resolutionIndex, 0, resolutionOptions.Length - 1);
+        Vector2Int resolution = resolutionOptions[currentResolutionIndex];
+        Screen.SetResolution(resolution.x, resolution.y, fullscreen);
+        UpdateDisplaySettingsLabels();
+    }
+
+    private int GetClosestResolutionIndex(int width, int height)
+    {
+        int bestIndex = 0;
+        int bestDifference = int.MaxValue;
+
+        for (int i = 0; i < resolutionOptions.Length; i++)
+        {
+            Vector2Int option = resolutionOptions[i];
+            int difference = Mathf.Abs(option.x - width) + Mathf.Abs(option.y - height);
+            if (difference < bestDifference)
+            {
+                bestDifference = difference;
+                bestIndex = i;
+            }
+        }
+
+        return bestIndex;
+    }
+
+    private void UpdateDisplaySettingsLabels()
+    {
+        if (fullscreenButtonLabel != null)
+            fullscreenButtonLabel.text = Screen.fullScreen ? "Fullscreen: On" : "Fullscreen: Off";
+
+        if (resolutionButtonLabel != null)
+        {
+            Vector2Int resolution = resolutionOptions[currentResolutionIndex];
+            resolutionButtonLabel.text = $"Resolution: {resolution.x}x{resolution.y}";
+        }
     }
 
     private void BuildStatusLabel()
@@ -718,8 +787,8 @@ public class RelayManager : MonoBehaviour
         mainMenuPanel?.SetActive(false);
         joinPanel?.SetActive(false);
         lobbyPanel?.SetActive(false);
-        loadingPanel?.SetActive(false);
         pausePanel?.SetActive(false);
+        displaySettingsPanel?.SetActive(false);
         pauseMenuOpen = false;
 
         if (menuBackground != null)
@@ -772,11 +841,21 @@ public class RelayManager : MonoBehaviour
 
     private UnityEngine.UI.Button CreateButton(Transform parent, string label, UnityEngine.Events.UnityAction action)
     {
+        return CreateButton(parent, label, action, new Vector2(420, 70), 26);
+    }
+
+    private UnityEngine.UI.Button CreateButton(
+        Transform parent,
+        string label,
+        UnityEngine.Events.UnityAction action,
+        Vector2 size,
+        float fontSize)
+    {
         GameObject buttonObject = new GameObject(label, typeof(RectTransform), typeof(Image), typeof(UnityEngine.UI.Button));
         buttonObject.transform.SetParent(parent, false);
 
         RectTransform rectTransform = buttonObject.GetComponent<RectTransform>();
-        rectTransform.sizeDelta = new Vector2(420, 70);
+        rectTransform.sizeDelta = size;
 
         Image image = buttonObject.GetComponent<Image>();
         image.color = new Color(0.17f, 0.34f, 0.28f, 1f);
@@ -785,7 +864,7 @@ public class RelayManager : MonoBehaviour
         button.targetGraphic = image;
         button.onClick.AddListener(action);
 
-        TextMeshProUGUI text = CreateText(buttonObject.transform, label, 26, FontStyles.Bold, TextAlignmentOptions.Center);
+        TextMeshProUGUI text = CreateText(buttonObject.transform, label, fontSize, FontStyles.Bold, TextAlignmentOptions.Center);
         text.rectTransform.anchorMin = Vector2.zero;
         text.rectTransform.anchorMax = Vector2.one;
         text.rectTransform.offsetMin = Vector2.zero;

@@ -35,6 +35,9 @@ public class CaveDungeonGenerator : NetworkBehaviour
     [SerializeField] private float laserWallPadding = 0.15f;
     [SerializeField] private float laserSwitchHeightOffset = 0.1f;
 
+    [Header("Финиш")]
+    [SerializeField] private float endHeightOffset = 0.01f;
+
     [Header("Player")]
     public float playerHeightOffset = 1f;
 
@@ -505,7 +508,7 @@ public class CaveDungeonGenerator : NetworkBehaviour
 
         Spawn(startPrefab, CellToWorld(startA));
         Spawn(startPrefab, CellToWorld(startB));
-        Spawn(endPrefab, CellToWorld(exitCell));
+        Spawn(endPrefab, CellToWorld(exitCell) + Vector3.up * endHeightOffset);
 
         // --- Двери ---
         Vector2Int leftDoorCell = new Vector2Int(width / 2 - 1, height / 2);

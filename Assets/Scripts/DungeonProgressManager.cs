@@ -4,6 +4,7 @@ using Unity.Netcode;
 using System.Linq;
 using TMPro;
 using System.Collections;
+using UnityEngine.UI;
 
 public class DungeonProgressManager : NetworkBehaviour
 {
@@ -26,6 +27,8 @@ public class DungeonProgressManager : NetworkBehaviour
     [SerializeField] private Material endPointActiveMaterial;
     [Header("UI")]
     [SerializeField] private TextMeshProUGUI progressText;
+    [SerializeField] private TextMeshProUGUI levelText;
+    [SerializeField] private bool createLevelTextIfMissing = true;
     
     
     private NetworkVariable<int> playersAtEnd = new NetworkVariable<int>(
@@ -326,6 +329,11 @@ public class DungeonProgressManager : NetworkBehaviour
     
     void UpdateUI()
     {
+        EnsureLevelText();
+
+        if (levelText != null)
+            levelText.text = $"Level {currentLevel.Value}";
+
         if (progressText != null)
         {
             int totalPlayers = GetTotalPlayers();
@@ -336,6 +344,44 @@ public class DungeonProgressManager : NetworkBehaviour
                 progressText.text = $"Level completed in {FormatTime(lastCompletionTime.Value)}. Generating next level...";
             }
         }
+    }
+
+    void EnsureLevelText()
+    {
+        if (levelText != null || !createLevelTextIfMissing)
+            return;
+
+        Canvas canvas = progressText != null
+            ? progressText.GetComponentInParent<Canvas>()
+            : FindObjectOfType<Canvas>();
+
+        if (canvas == null)
+        {
+            canvas = new GameObject("Dungeon UI Canvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster)).GetComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+
+            CanvasScaler scaler = canvas.GetComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920, 1080);
+            scaler.matchWidthOrHeight = 0.5f;
+        }
+
+        GameObject levelObject = new GameObject("Level Text", typeof(RectTransform), typeof(TextMeshProUGUI));
+        levelObject.transform.SetParent(canvas.transform, false);
+
+        levelText = levelObject.GetComponent<TextMeshProUGUI>();
+        levelText.text = $"Level {currentLevel.Value}";
+        levelText.fontSize = 30;
+        levelText.fontStyle = FontStyles.Bold;
+        levelText.alignment = TextAlignmentOptions.Left;
+        levelText.color = Color.white;
+
+        RectTransform rectTransform = levelText.rectTransform;
+        rectTransform.anchorMin = new Vector2(0f, 1f);
+        rectTransform.anchorMax = new Vector2(0f, 1f);
+        rectTransform.pivot = new Vector2(0f, 1f);
+        rectTransform.anchoredPosition = new Vector2(36f, -28f);
+        rectTransform.sizeDelta = new Vector2(320f, 52f);
     }
     
     int GetTotalPlayers()
