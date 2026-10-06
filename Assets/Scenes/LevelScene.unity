@@ -1199,6 +1199,87 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 672912953}
   m_CullTransparentMesh: 1
+--- !u!1001 &694493290
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 3315031923594135049, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
+      propertyPath: m_Name
+      value: Plane
+      objectReference: {fileID: 0}
+    - target: {fileID: 3981340503548702768, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
+      propertyPath: GlobalObjectIdHash
+      value: 1620996758
+      objectReference: {fileID: 0}
+    - target: {fileID: 3981340503548702768, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
+      propertyPath: SceneMigrationSynchronization
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3981340503548702768, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
+      propertyPath: InScenePlacedSourceGlobalObjectIdHash
+      value: 1132119209
+      objectReference: {fileID: 0}
+    - target: {fileID: 8928372320730373223, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
+      propertyPath: m_LocalScale.x
+      value: 100
+      objectReference: {fileID: 0}
+    - target: {fileID: 8928372320730373223, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
+      propertyPath: m_LocalScale.z
+      value: 100
+      objectReference: {fileID: 0}
+    - target: {fileID: 8928372320730373223, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8928372320730373223, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: -0.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 8928372320730373223, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8928372320730373223, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8928372320730373223, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8928372320730373223, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8928372320730373223, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8928372320730373223, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8928372320730373223, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8928372320730373223, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8928372320730373223, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
+      propertyPath: m_ConstrainProportionsScale
+      value: 0
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
 --- !u!1 &768276827
 GameObject:
   m_ObjectHideFlags: 0
@@ -1269,6 +1350,7 @@ MonoBehaviour:
   laserBarrierThickness: 0.45
   laserWallPadding: 0.15
   laserSwitchHeightOffset: 0.1
+  endHeightOffset: 0.01
   playerHeightOffset: 1
 --- !u!114 &768276830
 MonoBehaviour:
@@ -1369,6 +1451,8 @@ MonoBehaviour:
   victorySound: {fileID: 0}
   endPointActiveMaterial: {fileID: 0}
   progressText: {fileID: 1596551169}
+  levelText: {fileID: 0}
+  createLevelTextIfMissing: 1
 --- !u!1 &771037235
 GameObject:
   m_ObjectHideFlags: 0
@@ -1660,8 +1744,7 @@ MonoBehaviour:
   _inputField: {fileID: 1624727993}
   maxPlayers: 2
   voiceManager: {fileID: 0}
-  gameTitle: Maze 2.0
-  loadingDuration: 1.5
+  gameTitle: Maze Together
 --- !u!4 &953218659
 Transform:
   m_ObjectHideFlags: 0
@@ -2888,3 +2971,4 @@ SceneRoots:
   - {fileID: 1749716048}
   - {fileID: 490294843}
   - {fileID: 953218659}
+  - {fileID: 694493290}
