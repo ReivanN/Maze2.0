@@ -23,7 +23,7 @@ public class DungeonUI : MonoBehaviour
     
     void Start()
     {
-        progressManager = FindObjectOfType<DungeonProgressManager>();
+        progressManager = FindAnyObjectByType<DungeonProgressManager>();
         
         if (progressManager != null)
         {

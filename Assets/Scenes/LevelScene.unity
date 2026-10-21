@@ -1062,6 +1062,100 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 657342587}
   m_CullTransparentMesh: 1
+--- !u!1 &671456980
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 671456983}
+  - component: {fileID: 671456981}
+  - component: {fileID: 671456982}
+  m_Layer: 0
+  m_Name: LevelMutatorManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &671456981
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 671456980}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
+  GlobalObjectIdHash: 2796937690
+  InScenePlacedSourceGlobalObjectIdHash: 0
+  DeferredDespawnTick: 0
+  Ownership: 1
+  AlwaysReplicateAsRoot: 0
+  SynchronizeTransform: 1
+  ActiveSceneSynchronization: 0
+  SceneMigrationSynchronization: 0
+  SpawnWithObservers: 1
+  DontDestroyWithOwner: 0
+  AutoObjectParentSync: 1
+  SyncOwnerTransformWhenParented: 1
+  AllowOwnerToParent: 0
+--- !u!114 &671456982
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 671456980}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 832616a9c2a524cf881aca1a8fc35525, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LevelMutatorManager
+  ShowTopMostFoldoutHeaderGroup: 1
+  forcedMutator: 0
+  avoidRepeatingPrevious: 1
+  introHoldDuration: 3.2
+  introShrinkDuration: 0.8
+  settings:
+    lowGravityMultiplier: 0.4
+    heavyGravityMultiplier: 2
+    heavyJumpHeightMultiplier: 0.8
+    iceSpeedChangeRate: 1.2
+    mirrorHorizontal: 1
+    mirrorVertical: 1
+    windStrength: 1.4
+    windChangeInterval: 12
+    windWarningTime: 2.5
+    darkFogDensity: 0.085
+    darkFogColor: {r: 0, g: 0, b: 0, a: 1}
+    darkAmbientColor: {r: 0, g: 0, b: 0, a: 1}
+    darkSunMultiplier: 0
+    darkReflectionIntensity: 0
+    darkLanternRange: 6.5
+    darkLanternIntensity: 4
+    darkLanternColor: {r: 1, g: 0.85, b: 0.6, a: 1}
+    darkLanternHeight: 2.2
+--- !u!4 &671456983
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 671456980}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 29.34964, y: 34.99248, z: 9.93566}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &672912953
 GameObject:
   m_ObjectHideFlags: 0
@@ -2972,3 +3066,4 @@ SceneRoots:
   - {fileID: 490294843}
   - {fileID: 953218659}
   - {fileID: 694493290}
+  - {fileID: 671456983}

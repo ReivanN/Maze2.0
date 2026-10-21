@@ -68,7 +68,7 @@ public class Button: NetworkBehaviour
 
         if (IsPlayerCollider(other) && targetDoor != null)
         {
-            targetDoor.OpenDoorServerRpc();
+            targetDoor.OpenDoor();
 
             if (TryGetComponent<NetworkObject>(out var networkObject) && networkObject.IsSpawned)
                 networkObject.Despawn();

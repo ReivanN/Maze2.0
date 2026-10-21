@@ -18,6 +18,8 @@ public class RelayManager : MonoBehaviour
 {
     private const string StartGameMessageName = "Maze.StartGame";
     private const string StartTimerMessageName = "Maze.StartTimer";
+    private const string FullscreenPrefKey = "Maze.Fullscreen";
+    private const string ResolutionPrefKey = "Maze.ResolutionIndex";
     private const int RequiredPlayersToStart = 2;
 
     [Header("Legacy scene references")]
@@ -26,7 +28,7 @@ public class RelayManager : MonoBehaviour
 
     [Header("Relay")]
     [SerializeField] private int maxPlayers = 2;
-    [SerializeField] private VoiceManager voiceManager;
+    //[SerializeField] private VoiceManager voiceManager;
 
     [Header("Menu")]
     [SerializeField] private string gameTitle = "Maze Together";
@@ -62,6 +64,11 @@ public class RelayManager : MonoBehaviour
     private bool servicesReady;
     private bool flowBusy;
     private bool gameplayStarted;
+    private bool inRoom;
+    private string voiceWarning = string.Empty;
+
+    /// <summary>True from the moment the host presses Start until the player leaves the room.</summary>
+    public bool IsGameplayStarted => gameplayStarted;
     private bool gameplayReady;
     private bool timerStarted;
     private bool pauseMenuOpen;
@@ -87,6 +94,8 @@ public class RelayManager : MonoBehaviour
 
         NetworkManager.Singleton.OnClientConnectedCallback -= OnClientListChanged;
         NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientListChanged;
+        NetworkManager.Singleton.OnClientStopped -= OnClientStopped;
+        NetworkManager.Singleton.OnTransportFailure -= OnTransportFailure;
 
         if (NetworkManager.Singleton.CustomMessagingManager != null)
         {
@@ -123,8 +132,8 @@ public class RelayManager : MonoBehaviour
                 textMeshProUGUI.text = currentJoinCode;
 
             RegisterNetworkCallbacks();
-            await StartVoiceChat(currentJoinCode);
             ShowLobby(true, "Room created. Waiting for another player");
+            StartVoiceChatInBackground(currentJoinCode);
         }
         catch (Exception e) when (e is RelayServiceException || e is RequestFailedException)
         {
@@ -151,13 +160,23 @@ public class RelayManager : MonoBehaviour
         string joinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
 
         UnityTransport transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
-        transport.SetHostRelayData(
-            allocation.RelayServer.IpV4,
-            (ushort)allocation.RelayServer.Port,
-            allocation.AllocationIdBytes,
-            allocation.Key,
-            allocation.ConnectionData
-        );
+
+        try
+        {
+            // DTLS encrypts the traffic between the players and the Relay server.
+            transport.SetRelayServerData(allocation.ToRelayServerData("dtls"));
+        }
+        catch (ArgumentException e)
+        {
+            Debug.LogWarning($"DTLS endpoint is not available, falling back to UDP: {e.Message}");
+            transport.SetHostRelayData(
+                allocation.RelayServer.IpV4,
+                (ushort)allocation.RelayServer.Port,
+                allocation.AllocationIdBytes,
+                allocation.Key,
+                allocation.ConnectionData
+            );
+        }
 
         bool started = NetworkManager.Singleton.StartHost();
         return started ? joinCode : null;
@@ -176,14 +195,24 @@ public class RelayManager : MonoBehaviour
         JoinAllocation allocation = await RelayService.Instance.JoinAllocationAsync(joinCode.Trim().ToUpperInvariant());
 
         UnityTransport transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
-        transport.SetClientRelayData(
-            allocation.RelayServer.IpV4,
-            (ushort)allocation.RelayServer.Port,
-            allocation.AllocationIdBytes,
-            allocation.Key,
-            allocation.ConnectionData,
-            allocation.HostConnectionData
-        );
+
+        try
+        {
+            // Must match the host: DTLS (encrypted) if the Relay server offers it.
+            transport.SetRelayServerData(allocation.ToRelayServerData("dtls"));
+        }
+        catch (ArgumentException e)
+        {
+            Debug.LogWarning($"DTLS endpoint is not available, falling back to UDP: {e.Message}");
+            transport.SetClientRelayData(
+                allocation.RelayServer.IpV4,
+                (ushort)allocation.RelayServer.Port,
+                allocation.AllocationIdBytes,
+                allocation.Key,
+                allocation.ConnectionData,
+                allocation.HostConnectionData
+            );
+        }
 
         return NetworkManager.Singleton.StartClient();
     }
@@ -214,15 +243,56 @@ public class RelayManager : MonoBehaviour
 
     public void LeaveRoom()
     {
+        inRoom = false; // a deliberate exit, not a lost connection
+
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
             NetworkManager.Singleton.Shutdown();
 
+        ResetSessionState();
+        ShowMainMenu("You left the room");
+    }
+
+    private void ResetSessionState()
+    {
         currentJoinCode = string.Empty;
         gameplayStarted = false;
         gameplayReady = false;
         timerStarted = false;
+        pauseMenuOpen = false;
+
+        StopVoiceChat();
         SetGameplayInput(false);
-        ShowMainMenu("You left the room");
+    }
+
+    private void OnClientStopped(bool wasHost)
+    {
+        if (!inRoom)
+            return; // we left on purpose
+
+        HandleConnectionLost(wasHost ? "The room was closed" : "Lost connection to the host");
+    }
+
+    private void OnTransportFailure()
+    {
+        if (!inRoom)
+            return;
+
+        HandleConnectionLost("Network connection failed");
+    }
+
+    /// <summary>
+    /// The host closed the game, the network dropped or the connection could not be established:
+    /// shut networking down and bring the player back to the main menu.
+    /// </summary>
+    private void HandleConnectionLost(string message)
+    {
+        inRoom = false;
+
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+            NetworkManager.Singleton.Shutdown();
+
+        ResetSessionState();
+        ShowMainMenu(message);
     }
 
     public void ResumeGame()
@@ -232,6 +302,8 @@ public class RelayManager : MonoBehaviour
 
     public void ExitGame()
     {
+        inRoom = false;
+
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
             NetworkManager.Singleton.Shutdown();
 
@@ -272,8 +344,8 @@ public class RelayManager : MonoBehaviour
 
             currentJoinCode = joinCode;
             RegisterNetworkCallbacks();
-            await StartVoiceChat(joinCode);
-            ShowLobby(false, "Connected. Waiting for the host to start");
+            ShowLobby(false, "Connecting to the host...");
+            StartVoiceChatInBackground(joinCode);
         }
         catch (Exception e) when (e is RelayServiceException || e is RequestFailedException)
         {
@@ -300,15 +372,43 @@ public class RelayManager : MonoBehaviour
         servicesReady = true;
     }
 
+    /// <summary>
+    /// Voice login takes seconds, so it must never block the menu: the lobby is shown first and the voice
+    /// chat connects in the background.
+    /// </summary>
+    private async void StartVoiceChatInBackground(string joinCode)
+    {
+        try
+        {
+            await StartVoiceChat(joinCode);
+
+            if (!inRoom)
+            {
+                // The player left while voice was still connecting.
+                //if (voiceManager != null)
+                //    await voiceManager.StopVoice();
+                voiceWarning = string.Empty;
+                return;
+            }
+
+            if (!gameplayStarted && !string.IsNullOrEmpty(voiceWarning))
+                SetStatus(lastStatusMessage);
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"Voice chat failed to start: {e.Message}");
+        }
+    }
+
     private async Task StartVoiceChat(string joinCode)
     {
-        if (voiceManager == null)
-            voiceManager = FindAnyObjectByType<VoiceManager>();
+        //if (voiceManager == null)
+        //    voiceManager = FindAnyObjectByType<VoiceManager>();
 
-        if (voiceManager == null)
+        //if (voiceManager == null)
         {
-            Debug.LogWarning("VoiceManager was not found in the scene");
-            return;
+            // LevelScene has no VoiceManager object, so create one at runtime.
+            //voiceManager = new GameObject("VoiceManager").AddComponent<VoiceManager>();
         }
 
         string authPlayerId = AuthenticationService.Instance.PlayerId;
@@ -316,15 +416,33 @@ public class RelayManager : MonoBehaviour
         string playerName = $"Player_{shortPlayerId}";
         string roomName = $"Maze_{joinCode}";
 
-        await voiceManager.StartVoice(playerName, roomName);
+        //bool started = await voiceManager.StartVoice(playerName, roomName);
+
+        // Show the problem to the player instead of failing silently.
+        //voiceWarning = started
+        //    ? string.Empty
+        //    : "Voice chat is unavailable (check the microphone permission and your connection)";
+    }
+
+    private async void StopVoiceChat()
+    {
+        voiceWarning = string.Empty;
+
+        //if (voiceManager != null)
+        //    await voiceManager.StopVoice();
     }
 
     private void RegisterNetworkCallbacks()
     {
         NetworkManager.Singleton.OnClientConnectedCallback -= OnClientListChanged;
         NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientListChanged;
+        NetworkManager.Singleton.OnClientStopped -= OnClientStopped;
+        NetworkManager.Singleton.OnTransportFailure -= OnTransportFailure;
         NetworkManager.Singleton.OnClientConnectedCallback += OnClientListChanged;
         NetworkManager.Singleton.OnClientDisconnectCallback += OnClientListChanged;
+        NetworkManager.Singleton.OnClientStopped += OnClientStopped;
+        NetworkManager.Singleton.OnTransportFailure += OnTransportFailure;
+        inRoom = true;
 
         NetworkManager.Singleton.CustomMessagingManager.UnregisterNamedMessageHandler(StartGameMessageName);
         NetworkManager.Singleton.CustomMessagingManager.UnregisterNamedMessageHandler(StartTimerMessageName);
@@ -336,6 +454,13 @@ public class RelayManager : MonoBehaviour
 
     private void OnClientListChanged(ulong clientId)
     {
+        // The client is really connected to the host only now (StartClient returns before that).
+        if (!NetworkManager.Singleton.IsServer && !gameplayStarted &&
+            clientId == NetworkManager.Singleton.LocalClientId && NetworkManager.Singleton.IsConnectedClient)
+        {
+            SetStatus("Connected. Waiting for the host to start");
+        }
+
         UpdateLobbyPlayers();
         ApplyGameplayInputState();
 
@@ -499,6 +624,11 @@ public class RelayManager : MonoBehaviour
 
     private void ShowLobby(bool isHost, string message)
     {
+        // The game may already have started (the host can press Start before this code runs):
+        // never bring the connection UI back over the gameplay.
+        if (gameplayStarted)
+            return;
+
         ShowPanel(lobbyPanel);
         SetStatus(message);
 
@@ -542,10 +672,21 @@ public class RelayManager : MonoBehaviour
         }
     }
 
+    private string lastStatusMessage = string.Empty;
+
     private void SetStatus(string message)
     {
-        if (statusLabel != null)
-            statusLabel.text = message;
+        lastStatusMessage = message;
+
+        if (statusLabel == null)
+            return;
+
+        // Keep the voice problem visible in the menus and lobby.
+        bool addVoiceWarning = !string.IsNullOrEmpty(voiceWarning) &&
+                               !string.IsNullOrEmpty(message) &&
+                               !gameplayStarted;
+
+        statusLabel.text = addVoiceWarning ? $"{message}\n{voiceWarning}" : message;
     }
 
     private void EnsureEventSystem()
@@ -673,6 +814,16 @@ public class RelayManager : MonoBehaviour
         resolutionButtonLabel = resolutionButton.GetComponentInChildren<TextMeshProUGUI>();
 
         currentResolutionIndex = GetClosestResolutionIndex(Screen.width, Screen.height);
+
+        // Restore the display settings the player chose in a previous session.
+        if (PlayerPrefs.HasKey(FullscreenPrefKey) && PlayerPrefs.HasKey(ResolutionPrefKey))
+        {
+            ApplyDisplaySettings(
+                PlayerPrefs.GetInt(FullscreenPrefKey) == 1,
+                PlayerPrefs.GetInt(ResolutionPrefKey),
+                save: false);
+        }
+
         UpdateDisplaySettingsLabels();
     }
 
@@ -687,11 +838,19 @@ public class RelayManager : MonoBehaviour
         ApplyDisplaySettings(Screen.fullScreen, nextIndex);
     }
 
-    private void ApplyDisplaySettings(bool fullscreen, int resolutionIndex)
+    private void ApplyDisplaySettings(bool fullscreen, int resolutionIndex, bool save = true)
     {
         currentResolutionIndex = Mathf.Clamp(resolutionIndex, 0, resolutionOptions.Length - 1);
         Vector2Int resolution = resolutionOptions[currentResolutionIndex];
         Screen.SetResolution(resolution.x, resolution.y, fullscreen);
+
+        if (save)
+        {
+            PlayerPrefs.SetInt(FullscreenPrefKey, fullscreen ? 1 : 0);
+            PlayerPrefs.SetInt(ResolutionPrefKey, currentResolutionIndex);
+            PlayerPrefs.Save();
+        }
+
         UpdateDisplaySettingsLabels();
     }
 
@@ -733,7 +892,7 @@ public class RelayManager : MonoBehaviour
         statusLabel.rectTransform.anchorMax = new Vector2(0.5f, 0f);
         statusLabel.rectTransform.pivot = new Vector2(0.5f, 0f);
         statusLabel.rectTransform.anchoredPosition = new Vector2(0f, 72f);
-        statusLabel.rectTransform.sizeDelta = new Vector2(900, 48);
+        statusLabel.rectTransform.sizeDelta = new Vector2(900, 84);
         statusLabel.color = new Color(1f, 1f, 1f, 0.78f);
     }
 

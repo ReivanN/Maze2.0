@@ -78,9 +78,15 @@ public class Door : NetworkBehaviour
         gameObject.SetActive(false); // или анимация
     }
 
-    [ServerRpc(RequireOwnership = false)]
-    public void OpenDoorServerRpc()
+    /// <summary>
+    /// Server only. This used to be a ServerRpc with RequireOwnership = false, which would have let any client
+    /// open any door. The only caller is Button.OnTriggerEnter, which already runs on the server.
+    /// </summary>
+    public void OpenDoor()
     {
+        if (!IsServer)
+            return;
+
         isOpen.Value = true;
     }
 }
