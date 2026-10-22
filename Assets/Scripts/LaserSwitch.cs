@@ -127,18 +127,18 @@ public class LaserSwitch : NetworkBehaviour
     // Both players watch the laser turn off: the shot starts now, the laser goes off while the camera looks at it.
     private IEnumerator DisableLaserWithCameraShot()
     {
-        PlayLaserCutsceneRpc(targetLaser.BarrierCenter, cutsceneViewDirection);
+        PlayCameraCutsceneRpc(targetLaser.BarrierCenter, cutsceneViewDirection);
 
-        yield return new WaitForSeconds(LaserCutscene.LaserOffDelay);
+        yield return new WaitForSeconds(CameraCutscene.ActionDelay);
 
         if (targetLaser != null)
             targetLaser.Disable();
     }
 
     [Rpc(SendTo.ClientsAndHost)]
-    private void PlayLaserCutsceneRpc(Vector3 focus, Vector3 viewDirection)
+    private void PlayCameraCutsceneRpc(Vector3 focus, Vector3 viewDirection)
     {
-        LaserCutscene.Play(focus, viewDirection);
+        CameraCutscene.Play(focus, viewDirection);
     }
 
     private bool IsPlayerCollider(Collider other)

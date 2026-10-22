@@ -424,7 +424,7 @@ namespace StarterAssets
                 if (FootstepAudioClips.Length > 0)
                 {
                     var index = Random.Range(0, FootstepAudioClips.Length);
-                    AudioManager.PlayClipAt(FootstepAudioClips[index], transform.TransformPoint(_controller.center), FootstepAudioVolume);
+                    AudioManager.PlayClipAt(FootstepAudioClips[index], GetFeetSoundPosition(), FootstepAudioVolume);
                 }
             }
         }
@@ -433,8 +433,18 @@ namespace StarterAssets
         {
             if (animationEvent.animatorClipInfo.weight > 0.5f)
             {
-                AudioManager.PlayClipAt(LandingAudioClip, transform.TransformPoint(_controller.center), FootstepAudioVolume);
+                AudioManager.PlayClipAt(LandingAudioClip, GetFeetSoundPosition(), FootstepAudioVolume);
             }
+        }
+
+        // The other player's character has this component disabled (only the owner drives it), so Start never ran
+        // and _controller is empty, but its synced animation still fires the footstep / landing events.
+        private Vector3 GetFeetSoundPosition()
+        {
+            if (_controller == null)
+                _controller = GetComponent<CharacterController>();
+
+            return _controller != null ? transform.TransformPoint(_controller.center) : transform.position;
         }
     }
 }

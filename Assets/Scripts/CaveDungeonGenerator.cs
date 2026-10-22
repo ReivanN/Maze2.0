@@ -25,6 +25,10 @@ public class CaveDungeonGenerator : NetworkBehaviour
     public GameObject pushableCubePrefab;
     [Tooltip("Floor spikes. Empty = Resources/SpikeTrap.")]
     public GameObject spikeTrapPrefab;
+    [Tooltip("Item portal, one per half. Empty = Resources/ItemPortal.")]
+    public GameObject itemPortalPrefab;
+    [Tooltip("Heart pickup. Empty = Resources/HealthPickup.")]
+    public GameObject healthPickupPrefab;
 
     [Header("Падающие платформы")]
     [SerializeField] private int fallingPlatformRowsPerSideMin = 2;
@@ -44,6 +48,18 @@ public class CaveDungeonGenerator : NetworkBehaviour
     [SerializeField] private int cubeMinPathLength = 4;
     [SerializeField] private int cubeMaxPathLength = 10;
     [SerializeField] private float cubeSpawnHeight = 0.6f;
+    [Tooltip("Шанс, что куб появится на другой половине лабиринта (тогда его передают через портал).")]
+    [Range(0f, 1f)] [SerializeField] private float cubeOnOtherSideChance = 0.5f;
+
+    [Header("Предметы")]
+    [Tooltip("Сколько сердец-аптечек лежит на каждой половине.")]
+    [SerializeField] private int healthPickupsPerSide = 1;
+    [SerializeField] private float healthPickupSpawnHeight = 0.4f;
+
+    private LaserSwitch laserPlate;
+    private Vector2Int laserPlateCell;
+    private bool laserPlateOnRightSide;
+    private bool hasItemPortals;
 
     [Header("Шипы")]
     [SerializeField] private int spikeTrapsPerSideMin = 2;
@@ -514,6 +530,8 @@ public class CaveDungeonGenerator : NetworkBehaviour
     {
         Cleanup();
         reservedCells.Clear();
+        laserPlate = null;
+        hasItemPortals = false;
 
         for (int x = 0; x < width; x++)
         {
@@ -554,6 +572,10 @@ public class CaveDungeonGenerator : NetworkBehaviour
 
         leftDoor.SetDoorColor(DoorColor.Red);
         rightDoor.SetDoorColor(DoorColor.Blue);
+
+        // The door camera shot looks from the door's half towards the exit in the middle.
+        leftDoor.SetCutsceneViewDirection(Vector3.right);
+        rightDoor.SetCutsceneViewDirection(Vector3.left);
 
         // --- Поиск тупиков для кнопок ---
         List<Vector2Int> leftDeadEnds = new List<Vector2Int>();
@@ -616,6 +638,10 @@ public class CaveDungeonGenerator : NetworkBehaviour
             reservedCells.Add(rightButtonPos);
 
             TrySpawnLaserPuzzle(leftButtonPos, rightButtonPos, leftDeadEnds, rightDeadEnds);
+            SpawnItemPortals(leftDeadEnds, rightDeadEnds);
+            SpawnCubeForPlate(leftButtonPos, rightButtonPos);
+            SpawnHealthPickups(false, leftDeadEnds);
+            SpawnHealthPickups(true, rightDeadEnds);
 
             GameObject leftButtonObj = Spawn(buttonPrefab, CellToWorld(leftButtonPos) + Vector3.up * 0.01f);
             GameObject rightButtonObj = Spawn(buttonPrefab, CellToWorld(rightButtonPos) + Vector3.up * 0.01f);
@@ -715,15 +741,12 @@ public class CaveDungeonGenerator : NetworkBehaviour
         if (laserTrapPrefab == null || laserSwitchPrefab == null)
             return;
 
-        GameObject cubePrefab = pushableCubePrefab != null ? pushableCubePrefab : Resources.Load<GameObject>("PushableCube");
-        bool needCube = cubePrefab != null;
-
-        // The laser blocks the key of one side; the plate (and its cube) is on the other side,
-        // so the other player has to solve it.
-        bool canBlockLeftKey = TryChoosePlate(rightFreeDeadEnds, leftKeyCell, rightKeyCell, true, needCube,
-            out Vector2Int rightPlateCell, out Vector2Int rightCubeCell);
-        bool canBlockRightKey = TryChoosePlate(leftFreeDeadEnds, leftKeyCell, rightKeyCell, false, needCube,
-            out Vector2Int leftPlateCell, out Vector2Int leftCubeCell);
+        // The laser blocks the key of one side; the plate is on the other side, so the other player has to solve it.
+        // The cube is placed later (SpawnCubeForPlate), possibly on the far half: then it goes through the item portal.
+        bool canBlockLeftKey = TryChoosePlate(rightFreeDeadEnds, leftKeyCell, rightKeyCell, true, false,
+            out Vector2Int rightPlateCell, out _);
+        bool canBlockRightKey = TryChoosePlate(leftFreeDeadEnds, leftKeyCell, rightKeyCell, false, false,
+            out Vector2Int leftPlateCell, out _);
 
         if (!canBlockLeftKey && !canBlockRightKey)
             return;
@@ -732,15 +755,13 @@ public class CaveDungeonGenerator : NetworkBehaviour
 
         Vector2Int protectedCell = blockLeftSide ? leftKeyCell : rightKeyCell;
         Vector2Int switchCell = blockLeftSide ? rightPlateCell : leftPlateCell;
-        Vector2Int cubeCell = blockLeftSide ? rightCubeCell : leftCubeCell;
 
         if (!TryGetDeadEndEntry(protectedCell, out Vector2Int entryCell))
             return;
 
         reservedCells.Add(entryCell);
         reservedCells.Add(switchCell);
-        if (needCube)
-            reservedCells.Add(cubeCell);
+        (blockLeftSide ? rightFreeDeadEnds : leftFreeDeadEnds).Remove(switchCell);
 
         Vector2Int corridorDirection = protectedCell - entryCell;
         Vector2Int laserBeamDirection = new Vector2Int(-corridorDirection.y, corridorDirection.x);
@@ -768,16 +789,144 @@ public class CaveDungeonGenerator : NetworkBehaviour
         if (laserTrap != null && laserSwitch != null)
             laserSwitch.SetTargetLaser(laserTrap, CellDirectionToWorld(corridorDirection));
 
-        if (needCube && laserSwitch != null)
+        if (laserSwitch != null)
         {
-            GameObject cubeObj = Spawn(cubePrefab, CellToWorld(cubeCell) + Vector3.up * cubeSpawnHeight);
-            PushableCube cube = cubeObj.GetComponent<PushableCube>();
-
-            if (cube != null)
-                laserSwitch.SetRequiredCube(cube);
-            else
-                Debug.LogError("Pushable cube prefab must have a PushableCube component.");
+            laserPlate = laserSwitch;
+            laserPlateCell = switchCell;
+            laserPlateOnRightSide = blockLeftSide;
         }
+    }
+
+    // ================= ITEMS: PORTALS, CUBE, HEARTS =================
+
+    /// <summary>One item portal on each half, linked together, preferably in a free dead end.</summary>
+    void SpawnItemPortals(List<Vector2Int> leftFreeDeadEnds, List<Vector2Int> rightFreeDeadEnds)
+    {
+        hasItemPortals = false;
+
+        GameObject prefab = itemPortalPrefab != null ? itemPortalPrefab : Resources.Load<GameObject>("ItemPortal");
+        if (prefab == null)
+            return;
+
+        if (!TryTakeFreeCell(false, leftFreeDeadEnds, 2, out Vector2Int leftCell) ||
+            !TryTakeFreeCell(true, rightFreeDeadEnds, 2, out Vector2Int rightCell))
+        {
+            return;
+        }
+
+        ItemPortal leftPortal = Spawn(prefab, CellToWorld(leftCell)).GetComponent<ItemPortal>();
+        ItemPortal rightPortal = Spawn(prefab, CellToWorld(rightCell)).GetComponent<ItemPortal>();
+
+        if (leftPortal == null || rightPortal == null)
+        {
+            Debug.LogError("Item portal prefab must have an ItemPortal component.");
+            return;
+        }
+
+        leftPortal.Link(rightPortal);
+        rightPortal.Link(leftPortal);
+        hasItemPortals = true;
+    }
+
+    /// <summary>
+    /// The cube for the laser plate: on the plate's half (some walk away from the plate) or, when there are portals,
+    /// sometimes on the other half - then the other player has to send it through the portal.
+    /// </summary>
+    void SpawnCubeForPlate(Vector2Int leftKeyCell, Vector2Int rightKeyCell)
+    {
+        if (laserPlate == null)
+            return;
+
+        GameObject prefab = pushableCubePrefab != null ? pushableCubePrefab : Resources.Load<GameObject>("PushableCube");
+        if (prefab == null)
+            return;
+
+        bool otherSide = hasItemPortals && Random.value < cubeOnOtherSideChance;
+        bool cubeOnRightSide = otherSide ? !laserPlateOnRightSide : laserPlateOnRightSide;
+        Vector2Int cubeCell;
+
+        if (otherSide)
+        {
+            if (!TryTakeFreeCell(cubeOnRightSide, null, 2, out cubeCell))
+                return;
+        }
+        else
+        {
+            if (!TryChooseCubeCell(laserPlateCell, cubeOnRightSide, leftKeyCell, rightKeyCell, out cubeCell) ||
+                reservedCells.Contains(cubeCell))
+            {
+                if (!TryTakeFreeCell(cubeOnRightSide, null, 2, out cubeCell))
+                    return;
+            }
+
+            reservedCells.Add(cubeCell);
+        }
+
+        PushableCube cube = Spawn(prefab, CellToWorld(cubeCell) + Vector3.up * cubeSpawnHeight).GetComponent<PushableCube>();
+        if (cube != null)
+            laserPlate.SetRequiredCube(cube);
+        else
+            Debug.LogError("Pushable cube prefab must have a PushableCube component.");
+    }
+
+    /// <summary>Heart pickups on one half, preferably in free dead ends.</summary>
+    void SpawnHealthPickups(bool useRightSide, List<Vector2Int> freeDeadEnds)
+    {
+        GameObject prefab = healthPickupPrefab != null ? healthPickupPrefab : Resources.Load<GameObject>("HealthPickup");
+        if (prefab == null)
+            return;
+
+        for (int i = 0; i < healthPickupsPerSide; i++)
+        {
+            if (!TryTakeFreeCell(useRightSide, freeDeadEnds, 3, out Vector2Int cell))
+                return;
+
+            Spawn(prefab, CellToWorld(cell) + Vector3.up * healthPickupSpawnHeight);
+        }
+    }
+
+    /// <summary>
+    /// A free cell on one half for an item: a free dead end from the list if there is one, otherwise a corridor cell.
+    /// Never reserved, never on a falling platform, at least minDistanceFromStart cells from the player's start.
+    /// The cell is reserved and removed from the list.
+    /// </summary>
+    bool TryTakeFreeCell(bool useRightSide, List<Vector2Int> preferredDeadEnds, int minDistanceFromStart, out Vector2Int cell)
+    {
+        Vector2Int sideStart = useRightSide ? startB : startA;
+        List<Vector2Int> candidates = new List<Vector2Int>();
+
+        bool IsFree(Vector2Int candidate) =>
+            !reservedCells.Contains(candidate) && !fallingPlatformCells.Contains(candidate) && candidate != exitCell &&
+            Mathf.Abs(candidate.x - sideStart.x) + Mathf.Abs(candidate.y - sideStart.y) >= minDistanceFromStart;
+
+        if (preferredDeadEnds != null)
+        {
+            foreach (Vector2Int candidate in preferredDeadEnds)
+            {
+                if (IsFree(candidate))
+                    candidates.Add(candidate);
+            }
+        }
+
+        if (candidates.Count == 0)
+        {
+            foreach (Vector2Int candidate in GetReachableCells(sideStart, useRightSide))
+            {
+                if (IsFree(candidate) && CountWalkableNeighbours(candidate) >= 2)
+                    candidates.Add(candidate);
+            }
+        }
+
+        if (candidates.Count == 0)
+        {
+            cell = default;
+            return false;
+        }
+
+        cell = candidates[Random.Range(0, candidates.Count)];
+        reservedCells.Add(cell);
+        preferredDeadEnds?.Remove(cell);
+        return true;
     }
 
     /// <summary>

@@ -93,12 +93,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   visualPrefab: {fileID: 8508690052078365839, guid: 4ca8416c33260a44b8b55c79fd7fda51, type: 3}
-  animatorController: {fileID: 9100000, guid: 5e79e1911c39f3645acf7b5bad8e3a9e, type: 2}
-  animationState: Scene
   visualSize: 1.8
   animationLength: 2.04
   cycleDuration: 3
-  dangerStart: 0.07
-  dangerEnd: 0.48
+  riseEnd: 0.06
+  holdEnd: 0.4
+  lowerEnd: 0.55
+  dangerHeight: 0.4
   damageAreaSize: {x: 1.6, y: 1.2, z: 1.6}
   soundMaxDistance: 12

@@ -5,23 +5,24 @@ using Unity.Netcode;
 using UnityEngine;
 
 /// <summary>
-/// Short camera shot of a laser turning off, played on both players at the same time (started by LaserSwitch).
+/// Short camera shot of something happening in the maze (a laser turning off, a door opening), played on both
+/// players at the same time (started by LaserSwitch and Door).
 /// A temporary virtual camera with a high priority takes over, the CinemachineBrain blends to it and back.
 /// The local player cannot move or look around while the shot plays.
 /// </summary>
 [DefaultExecutionOrder(-200)] // clears the input before PlayerMutatorApplier (-100) and ThirdPersonController read it
-public class LaserCutscene : MonoBehaviour
+public class CameraCutscene : MonoBehaviour
 {
     public const float BlendTime = 1f;
-    /// <summary>Seconds from the start of the shot until the server turns the laser off.</summary>
-    public const float LaserOffDelay = 1.5f;
+    /// <summary>Seconds from the start of the shot until the server does the shown action (laser off, door open).</summary>
+    public const float ActionDelay = 1.5f;
 
-    private const float HoldAfterLaserOff = 1.4f;
+    private const float HoldAfterAction = 1.4f;
     private const float CameraHeight = 7f;      // above the 6 m walls, so the maze does not block the view
     private const float CameraBackOffset = 3.5f;
     private const int CameraPriority = 100;
 
-    private static LaserCutscene instance;
+    private static CameraCutscene instance;
 
     private Coroutine shot;
     private GameObject shotCamera;
@@ -31,12 +32,12 @@ public class LaserCutscene : MonoBehaviour
 
     public static bool IsPlaying => instance != null && instance.shot != null;
 
-    /// <param name="focus">Point the camera looks at (the laser).</param>
+    /// <param name="focus">Point the camera looks at (the laser, the door).</param>
     /// <param name="viewDirection">Direction the camera looks along, horizontally.</param>
     public static void Play(Vector3 focus, Vector3 viewDirection)
     {
         if (instance == null)
-            instance = new GameObject("Laser Cutscene").AddComponent<LaserCutscene>();
+            instance = new GameObject("Camera Cutscene").AddComponent<CameraCutscene>();
 
         instance.StartShot(focus, viewDirection);
     }
@@ -68,7 +69,7 @@ public class LaserCutscene : MonoBehaviour
         if (flatDirection.sqrMagnitude < 0.01f)
             flatDirection = Vector3.forward;
 
-        shotCamera = new GameObject("Laser Cutscene Camera");
+        shotCamera = new GameObject("Cutscene Camera");
         shotCamera.transform.position = focus - flatDirection.normalized * CameraBackOffset + Vector3.up * CameraHeight;
         shotCamera.transform.LookAt(focus);
 
@@ -77,7 +78,7 @@ public class LaserCutscene : MonoBehaviour
         virtualCamera.m_Priority = CameraPriority;
         virtualCamera.m_Lens.FieldOfView = 60f;
 
-        yield return new WaitForSeconds(LaserOffDelay + HoldAfterLaserOff);
+        yield return new WaitForSeconds(ActionDelay + HoldAfterAction);
 
         // Removing the camera makes the brain blend back to the player camera.
         Destroy(shotCamera);

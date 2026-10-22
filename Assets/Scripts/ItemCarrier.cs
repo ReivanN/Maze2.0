@@ -6,18 +6,19 @@ using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 /// <summary>
-/// Lets the local player pick up, carry, put down and throw PushableCube:
-///   E near a cube - pick it up (it floats above the head), sprint is off while carrying;
-///   E again       - put it down in front;
-///   left mouse    - throw it where the camera looks.
+/// Lets the local player pick up, carry, put down and throw items (CarryableItem: the cube, hearts):
+///   E near an item - pick it up (it floats above the head), sprint is off while carrying;
+///   E again        - put it down in front;
+///   left mouse     - throw it where the camera looks;
+///   F              - use it, for items that have a use (a heart restores one heart).
 /// Shows the matching hint on screen. Added at runtime to the local player, so the player prefab is not edited.
 /// </summary>
-public class CubeCarrier : MonoBehaviour
+public class ItemCarrier : MonoBehaviour
 {
-    [Tooltip("How close the player has to be to a cube to pick it up.")]
+    [Tooltip("How close the player has to be to an item to pick it up.")]
     [SerializeField] private float interactDistance = 1.9f;
 
-    private const float NoRoomHintTime = 1.2f;
+    private const float RefusalHintTime = 1.6f;
 
     private ThirdPersonController controller;
     private float baseSprintSpeed;
@@ -28,7 +29,8 @@ public class CubeCarrier : MonoBehaviour
     private RectTransform promptRoot;
     private RectTransform promptPanel;
     private TextMeshProUGUI promptText;
-    private float noRoomHintUntil;
+    private string refusalHint;
+    private float refusalHintUntil;
 
     /// <summary>Returns false while the local player is not spawned yet.</summary>
     public static bool EnsureOnLocalPlayer()
@@ -42,8 +44,8 @@ public class CubeCarrier : MonoBehaviour
         if (playerController == null)
             return false;
 
-        if (playerController.GetComponent<CubeCarrier>() == null)
-            playerController.gameObject.AddComponent<CubeCarrier>();
+        if (playerController.GetComponent<ItemCarrier>() == null)
+            playerController.gameObject.AddComponent<ItemCarrier>();
 
         return true;
     }
@@ -65,23 +67,38 @@ public class CubeCarrier : MonoBehaviour
 
     private void Update()
     {
-        PushableCube carried = FindCarriedCube();
+        CarryableItem carried = FindCarriedItem();
         SetSprintLimited(carried != null);
 
         bool inputAllowed = IsInputAllowed();
-        bool ePressed = inputAllowed && Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame;
+        Keyboard keyboard = Keyboard.current;
+        bool ePressed = inputAllowed && keyboard != null && keyboard.eKey.wasPressedThisFrame;
+        bool usePressed = inputAllowed && keyboard != null && keyboard.fKey.wasPressedThisFrame;
         bool throwPressed = inputAllowed && Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame;
 
         if (carried != null)
         {
-            if (ePressed && !carried.TryPutDown(transform))
-                noRoomHintUntil = Time.time + NoRoomHintTime;
+            if (ePressed)
+            {
+                if (!carried.TryPutDown(transform))
+                    ShowRefusal("No room to put it down");
+            }
             else if (throwPressed)
+            {
                 carried.Throw(GetThrowDirection());
+            }
+            else if (usePressed && carried.HasUseAction && !carried.TryUse(out string refusal) && refusal != null)
+            {
+                ShowRefusal(refusal);
+            }
 
             if (inputAllowed)
             {
-                string text = Time.time < noRoomHintUntil ? "No room to put it down" : "[E] Put down     [LMB] Throw";
+                string text = Time.time < refusalHintUntil
+                    ? refusalHint
+                    : carried.HasUseAction
+                        ? "[F] Use     [E] Put down     [LMB] Throw"
+                        : "[E] Put down     [LMB] Throw";
                 ShowPromptAtBottom(text);
             }
             else
@@ -92,14 +109,14 @@ public class CubeCarrier : MonoBehaviour
             return;
         }
 
-        PushableCube nearest = inputAllowed ? FindNearestCube() : null;
+        CarryableItem nearest = inputAllowed ? FindNearestItem() : null;
         if (nearest == null)
         {
             HidePrompt();
             return;
         }
 
-        ShowPromptAt(nearest.transform.position + Vector3.up * 0.9f, "[E] Pick up");
+        ShowPromptAt(nearest.transform.position + Vector3.up * 0.9f, $"[E] Pick up {nearest.DisplayName}");
 
         if (ePressed)
             nearest.RequestPickUp();
@@ -107,7 +124,7 @@ public class CubeCarrier : MonoBehaviour
 
     private bool IsInputAllowed()
     {
-        if (controller == null || !controller.enabled || LaserCutscene.IsPlaying)
+        if (controller == null || !controller.enabled || CameraCutscene.IsPlaying)
             return false;
 
         if (relayManager == null)
@@ -116,36 +133,42 @@ public class CubeCarrier : MonoBehaviour
         return relayManager == null || !relayManager.IsMenuOpen;
     }
 
-    private static PushableCube FindCarriedCube()
+    private void ShowRefusal(string text)
     {
-        foreach (PushableCube cube in PushableCube.Instances)
+        refusalHint = text;
+        refusalHintUntil = Time.time + RefusalHintTime;
+    }
+
+    private static CarryableItem FindCarriedItem()
+    {
+        foreach (CarryableItem item in CarryableItem.Instances)
         {
-            if (cube != null && cube.IsCarriedByLocalPlayer)
-                return cube;
+            if (item != null && item.IsCarriedByLocalPlayer)
+                return item;
         }
 
         return null;
     }
 
-    private PushableCube FindNearestCube()
+    private CarryableItem FindNearestItem()
     {
-        PushableCube nearest = null;
+        CarryableItem nearest = null;
         float nearestDistance = interactDistance;
         Vector3 position = transform.position;
 
-        foreach (PushableCube cube in PushableCube.Instances)
+        foreach (CarryableItem item in CarryableItem.Instances)
         {
-            if (cube == null || !cube.CanBePickedUp)
+            if (item == null || !item.CanBePickedUp)
                 continue;
 
-            Vector3 offset = cube.transform.position - position;
+            Vector3 offset = item.transform.position - position;
             if (Mathf.Abs(offset.y) > 1.5f)
                 continue;
 
             float distance = new Vector2(offset.x, offset.z).magnitude;
             if (distance <= nearestDistance)
             {
-                nearest = cube;
+                nearest = item;
                 nearestDistance = distance;
             }
         }
@@ -161,7 +184,7 @@ public class CubeCarrier : MonoBehaviour
         return direction.sqrMagnitude > 0.0001f ? direction.normalized : transform.forward;
     }
 
-    // No running with the cube: sprint speed is the walk speed while carrying.
+    // No running with an item: sprint speed is the walk speed while carrying.
     private void SetSprintLimited(bool limited)
     {
         if (controller == null || sprintLimited == limited)
@@ -175,7 +198,7 @@ public class CubeCarrier : MonoBehaviour
 
     private void CreatePrompt()
     {
-        promptCanvas = new GameObject("Cube Prompt", typeof(Canvas), typeof(CanvasScaler));
+        promptCanvas = new GameObject("Item Prompt", typeof(Canvas), typeof(CanvasScaler));
         Canvas canvas = promptCanvas.GetComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = 45; // above the hearts, below the mutator HUD and the menus
@@ -220,7 +243,7 @@ public class CubeCarrier : MonoBehaviour
         promptCanvas.SetActive(false);
     }
 
-    // Hint floating over the cube on screen.
+    // Hint floating over the item on screen.
     private void ShowPromptAt(Vector3 worldPosition, string text)
     {
         Camera cam = Camera.main;
@@ -238,13 +261,13 @@ public class CubeCarrier : MonoBehaviour
             return;
         }
 
-        SetPrompt(text, new Vector2(0.5f, 0.5f), localPoint, 260f);
+        SetPrompt(text, new Vector2(0.5f, 0.5f), localPoint, 330f);
     }
 
     // Fixed hint at the bottom of the screen while carrying.
     private void ShowPromptAtBottom(string text)
     {
-        SetPrompt(text, new Vector2(0.5f, 0f), new Vector2(0f, 150f), 520f);
+        SetPrompt(text, new Vector2(0.5f, 0f), new Vector2(0f, 150f), 720f);
     }
 
     private void SetPrompt(string text, Vector2 anchor, Vector2 position, float width)

@@ -469,6 +469,24 @@ public class DungeonProgressManager : NetworkBehaviour
         return true;
     }
 
+    /// <summary>Server: a heart pickup was used. Adds one heart; false when the player already has all hearts.</summary>
+    public bool HealPlayer(ulong clientId)
+    {
+        if (!IsServer || gameOver.Value)
+            return false;
+
+        EnsureHearts(clientId);
+        int index = FindHeartsIndex(clientId);
+        PlayerHearts entry = playerHearts[index];
+
+        if (entry.Hearts >= maxHearts)
+            return false;
+
+        entry.Hearts++;
+        playerHearts[index] = entry;
+        return true;
+    }
+
     /// <summary>Restart button on the game over screen (either player).</summary>
     public void RequestRestart()
     {

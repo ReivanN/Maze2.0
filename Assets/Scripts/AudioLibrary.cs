@@ -18,7 +18,10 @@ public enum Sfx
     FallRespawn,
     GameOver,
     SpikesOut,
-    SpikeHit
+    SpikeHit,
+    PortalTeleport,
+    Heal,
+    KeyPickup
 }
 
 /// <summary>
