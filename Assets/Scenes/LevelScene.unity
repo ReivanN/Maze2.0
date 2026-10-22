@@ -561,10 +561,11 @@ MonoBehaviour:
     lowGravityMultiplier: 0.4
     heavyGravityMultiplier: 2
     heavyJumpHeightMultiplier: 0.8
-    iceSpeedChangeRate: 1.2
+    iceAcceleration: 3
+    iceFriction: 1.2
     mirrorHorizontal: 1
     mirrorVertical: 1
-    windStrength: 1.4
+    windStrength: 0.8
     windChangeInterval: 12
     windWarningTime: 2.5
     darkFogDensity: 0.085
@@ -652,6 +653,7 @@ MonoBehaviour:
   fallingPlatformPrefab: {fileID: 2489608222819041174, guid: f1eec06f2a07a42288af5f4cada5914c, type: 3}
   laserTrapPrefab: {fileID: 8283847408958263004, guid: 72005a77723ce43a68173131ab388110, type: 3}
   laserSwitchPrefab: {fileID: 7581313357955315418, guid: 97a37d2199ef94f1bb69dba6dac5bc9b, type: 3}
+  pushableCubePrefab: {fileID: 0}
   fallingPlatformRowsPerSideMin: 2
   fallingPlatformRowsPerSideMax: 3
   fallingPlatformRowLengthMin: 2
@@ -661,6 +663,9 @@ MonoBehaviour:
   laserBarrierThickness: 0.45
   laserWallPadding: 0.15
   laserSwitchHeightOffset: 0.1
+  cubeMinPathLength: 4
+  cubeMaxPathLength: 10
+  cubeSpawnHeight: 0.6
   endHeightOffset: 0.01
   playerHeightOffset: 1
 --- !u!114 &768276830

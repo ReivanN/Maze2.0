@@ -40,7 +40,12 @@ public class RelayManager : MonoBehaviour
     private GameObject joinPanel;
     private GameObject lobbyPanel;
     private GameObject pausePanel;
-    private GameObject displaySettingsPanel;
+    private GameObject gameOverPanel;
+    private TextMeshProUGUI gameOverInfoLabel;
+    private UnityEngine.UI.Button gameOverRestartButton;
+    private TextMeshProUGUI gameOverRestartLabel;
+    private bool gameOverOpen;
+private GameObject displaySettingsPanel;
     private TMP_InputField joinCodeInput;
     private TextMeshProUGUI statusLabel;
     private TextMeshProUGUI lobbyCodeLabel;
@@ -522,7 +527,7 @@ public class RelayManager : MonoBehaviour
 
     private void ApplyGameplayInputState()
     {
-        bool canMove = gameplayReady && timerStarted;
+        bool canMove = gameplayReady && timerStarted && !gameOverOpen;
         SetGameplayInput(canMove);
 
         if (canMove)
@@ -531,7 +536,7 @@ public class RelayManager : MonoBehaviour
 
     private void HandlePauseInput()
     {
-        if (!gameplayStarted || Keyboard.current == null)
+        if (!gameplayStarted || gameOverOpen || Keyboard.current == null)
             return;
 
         if (Keyboard.current.escapeKey.wasPressedThisFrame)
@@ -632,7 +637,9 @@ public class RelayManager : MonoBehaviour
         ShowPanel(mainMenuPanel);
         SetStatus(message);
         lastLobbyPlayers = 0;
-        AudioManager.EnterMenu();
+        gameOverOpen = false;
+        gameOverPanel?.SetActive(false);
+AudioManager.EnterMenu();
     }
 
     private void ShowLobby(bool isHost, string message)
@@ -734,12 +741,14 @@ public class RelayManager : MonoBehaviour
         joinPanel = CreatePanel("Join Room");
         lobbyPanel = CreatePanel("Lobby");
         pausePanel = CreatePanel("Pause Menu");
+        gameOverPanel = CreatePanel("Game Over");
 
         BuildMainMenu();
         BuildJoinPanel();
         BuildLobbyPanel();
         BuildPausePanel();
-        BuildDisplaySettingsPanel();
+        BuildGameOverPanel();
+BuildDisplaySettingsPanel();
         BuildStatusLabel();
         BuildTimerLabel();
     }
@@ -878,6 +887,84 @@ public class RelayManager : MonoBehaviour
         CreateButton(pausePanel.transform, "Exit Game", ExitGame, UiButtonStyle.Danger);
 
         pausePanel.SetActive(false);
+    }
+
+    private void BuildGameOverPanel()
+    {
+        TextMeshProUGUI title = CreateText(gameOverPanel.transform, "Game Over", 72, FontStyles.Bold, TextAlignmentOptions.Center);
+        title.rectTransform.sizeDelta = new Vector2(760, 100);
+        title.color = new Color(1f, 0.35f, 0.35f, 1f);
+
+        gameOverInfoLabel = CreateText(gameOverPanel.transform, string.Empty, 30, FontStyles.Normal, TextAlignmentOptions.Center);
+        gameOverInfoLabel.rectTransform.sizeDelta = new Vector2(760, 100);
+
+        gameOverRestartButton = CreateButton(gameOverPanel.transform, "Restart", RestartFromGameOver);
+        gameOverRestartLabel = gameOverRestartButton.GetComponentInChildren<TextMeshProUGUI>();
+        CreateButton(gameOverPanel.transform, "Leave", LeaveRoom, UiButtonStyle.Danger);
+
+        gameOverPanel.SetActive(false);
+    }
+
+    /// <summary>Called on both players by DungeonProgressManager when a player has no hearts left.</summary>
+    public void ShowGameOver(bool localPlayerLost, int level)
+    {
+        gameOverOpen = true;
+        pauseMenuOpen = false;
+        pausePanel?.SetActive(false);
+
+        if (menuCanvas != null)
+            menuCanvas.gameObject.SetActive(true);
+
+        if (menuBackground != null)
+            menuBackground.SetActive(true);
+
+        gameOverPanel?.SetActive(true);
+
+        if (gameOverInfoLabel != null)
+        {
+            string who = localPlayerLost ? "You ran out of hearts" : "Your friend ran out of hearts";
+            gameOverInfoLabel.text = $"{who}\nReached level {level}";
+        }
+
+        if (gameOverRestartButton != null)
+            gameOverRestartButton.interactable = true;
+
+        if (gameOverRestartLabel != null)
+            gameOverRestartLabel.text = "Restart";
+
+        SetGameplayInput(false);
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+    }
+
+    /// <summary>The server restarted the game from level 1.</summary>
+    public void HideGameOver()
+    {
+        if (!gameOverOpen)
+            return;
+
+        gameOverOpen = false;
+        gameOverPanel?.SetActive(false);
+
+        if (menuBackground != null)
+            menuBackground.SetActive(false);
+
+        ApplyGameplayInputState();
+    }
+
+    // Either player can restart; the server restarts the game for both.
+    private void RestartFromGameOver()
+    {
+        if (DungeonProgressManager.Instance == null)
+            return;
+
+        if (gameOverRestartButton != null)
+            gameOverRestartButton.interactable = false;
+
+        if (gameOverRestartLabel != null)
+            gameOverRestartLabel.text = "Restarting...";
+
+        DungeonProgressManager.Instance.RequestRestart();
     }
 
     private void BuildDisplaySettingsPanel()

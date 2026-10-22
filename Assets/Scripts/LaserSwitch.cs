@@ -12,6 +12,18 @@ public class LaserSwitch : NetworkBehaviour
     [SerializeField] private float pressDuration = 0.12f;
     [SerializeField] private Vector3 minimumTriggerSize = new Vector3(1.5f, 1.2f, 1.5f);
 
+    [Header("Cube")]
+    [Tooltip("When set, only this cube pushed onto the plate presses it; players walking over it do nothing.")]
+    [SerializeField] private PushableCube requiredCube;
+    [Tooltip("How far from the plate center (on X and Z) the cube still counts as standing on the plate. " +
+             "1 = anywhere in the plate's maze cell (cells are 2 m), so a cube that visibly touches the plate counts.")]
+    [SerializeField] private float cubeDetectionHalfSize = 1f;
+    [SerializeField] private float cubeRestHeight = 0.5f;
+
+    [Header("Camera shot")]
+    [Tooltip("Direction the laser-off camera looks along. Set by the generator: from the corridor into the blocked dead end.")]
+    [SerializeField] private Vector3 cutsceneViewDirection = Vector3.forward;
+
     private readonly NetworkVariable<bool> isPressed = new NetworkVariable<bool>(
         false,
         NetworkVariableReadPermission.Everyone,
@@ -27,12 +39,20 @@ public class LaserSwitch : NetworkBehaviour
         if (visualRoot == null)
             visualRoot = transform;
 
-        releasedLocalPosition = visualRoot.localPosition;
         EnsureUsableTrigger();
     }
 
     public override void OnNetworkSpawn()
     {
+        // Not in Awake: on clients NGO instantiates the prefab at (0, 0, 0) and moves it to its real place only
+        // after Awake. Caching the position there put the plate into the maze corner (inside a wall) on the client,
+        // so the client pushed the cube to the wrong place and the laser never turned off.
+        releasedLocalPosition = visualRoot.localPosition;
+
+        // A client that joins after the plate was pressed receives the lowered position.
+        if (isPressed.Value)
+            releasedLocalPosition += Vector3.up * pressDepth;
+
         isPressed.OnValueChanged += OnPressedChanged;
         ApplyPressedState(isPressed.Value, true);
     }
@@ -45,23 +65,76 @@ public class LaserSwitch : NetworkBehaviour
     private void OnTriggerEnter(Collider other)
     {
         if (!IsServer) return;
+        if (requiredCube != null) return; // this plate is pressed by the cube, not by players
         if (used && oneTimeUse) return;
         if (!IsPlayerCollider(other)) return;
-        if (targetLaser == null) return;
 
-        isPressed.Value = true;
+        Activate();
+    }
 
-        if (disableLaser)
-            targetLaser.Disable();
-        else
-            targetLaser.Toggle();
+    private void Update()
+    {
+        if (!IsServer || !IsSpawned || used || requiredCube == null || !requiredCube.IsSpawned)
+            return;
 
-        used = true;
+        Vector3 offset = requiredCube.transform.position - transform.position;
+        bool onPlate = Mathf.Abs(offset.x) <= cubeDetectionHalfSize &&
+                       Mathf.Abs(offset.z) <= cubeDetectionHalfSize &&
+                       Mathf.Abs(offset.y) <= 1.5f;
+
+        if (onPlate)
+        {
+            Debug.Log("[LaserSwitch] The cube is on the plate, turning the laser off.");
+            requiredCube.LockOnPlate(transform.position + Vector3.up * cubeRestHeight);
+            Activate();
+        }
     }
 
     public void SetTargetLaser(LaserTrap laserTrap)
     {
         targetLaser = laserTrap;
+    }
+
+    public void SetTargetLaser(LaserTrap laserTrap, Vector3 viewDirection)
+    {
+        targetLaser = laserTrap;
+        cutsceneViewDirection = viewDirection;
+    }
+
+    public void SetRequiredCube(PushableCube cube)
+    {
+        requiredCube = cube;
+    }
+
+    private void Activate()
+    {
+        if (targetLaser == null)
+            return;
+
+        isPressed.Value = true;
+        used = true;
+
+        if (disableLaser)
+            StartCoroutine(DisableLaserWithCameraShot());
+        else
+            targetLaser.Toggle();
+    }
+
+    // Both players watch the laser turn off: the shot starts now, the laser goes off while the camera looks at it.
+    private IEnumerator DisableLaserWithCameraShot()
+    {
+        PlayLaserCutsceneRpc(targetLaser.BarrierCenter, cutsceneViewDirection);
+
+        yield return new WaitForSeconds(LaserCutscene.LaserOffDelay);
+
+        if (targetLaser != null)
+            targetLaser.Disable();
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void PlayLaserCutsceneRpc(Vector3 focus, Vector3 viewDirection)
+    {
+        LaserCutscene.Play(focus, viewDirection);
     }
 
     private bool IsPlayerCollider(Collider other)
@@ -95,7 +168,7 @@ public class LaserSwitch : NetworkBehaviour
     private void OnPressedChanged(bool oldValue, bool newValue)
     {
         if (newValue && !oldValue)
-            AudioManager.Play(Sfx.LaserSwitch);
+            AudioManager.PlayAt(Sfx.PressurePlate, transform.position);
 
         ApplyPressedState(newValue, false);
     }

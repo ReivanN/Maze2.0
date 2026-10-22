@@ -29,8 +29,50 @@ public class DungeonProgressManager : NetworkBehaviour
     [SerializeField] private TextMeshProUGUI progressText;
     [SerializeField] private TextMeshProUGUI levelText;
     [SerializeField] private bool createLevelTextIfMissing = true;
-    
-    
+
+    [Header("Health")]
+    [SerializeField] private int maxHearts = 3;
+    [Tooltip("After losing a heart the player cannot lose another one for this many seconds.")]
+    [SerializeField] private float damageCooldown = 2f;
+
+    /// <summary>Hearts of one player, kept by the server and synced to both players.</summary>
+    public struct PlayerHearts : INetworkSerializable, System.IEquatable<PlayerHearts>
+    {
+        public ulong ClientId;
+        public int Hearts;
+
+        public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
+        {
+            serializer.SerializeValue(ref ClientId);
+            serializer.SerializeValue(ref Hearts);
+        }
+
+        public bool Equals(PlayerHearts other) => ClientId == other.ClientId && Hearts == other.Hearts;
+    }
+
+    private NetworkList<PlayerHearts> playerHearts;
+
+    private NetworkVariable<bool> gameOver = new NetworkVariable<bool>(
+        false,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    // The player who lost the last heart.
+    private NetworkVariable<ulong> gameOverPlayer = new NetworkVariable<ulong>(
+        0,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    private readonly Dictionary<ulong, float> lastDamageTime = new Dictionary<ulong, float>();
+    private bool restarting;
+
+    public static DungeonProgressManager Instance { get; private set; }
+    public int MaxHearts => maxHearts;
+    public bool IsGameOver => gameOver.Value;
+
+
     private NetworkVariable<int> playersAtEnd = new NetworkVariable<int>(
         0, 
         NetworkVariableReadPermission.Everyone,
@@ -64,16 +106,30 @@ public class DungeonProgressManager : NetworkBehaviour
     public System.Action OnLevelCompleted;
     public System.Action<int> OnLevelChanged;
     
+    private void Awake()
+    {
+        // NetworkList has to exist before the object is spawned.
+        playerHearts = new NetworkList<PlayerHearts>();
+    }
+
     public override void OnNetworkSpawn()
     {
+        Instance = this;
+
         if (IsServer)
         {
             Invoke(nameof(FindEndZone), 0.5f);
-            
+
             NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
             NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
+
+            foreach (ulong clientId in NetworkManager.Singleton.ConnectedClientsIds)
+                EnsureHearts(clientId);
         }
-        
+
+        gameOver.OnValueChanged += OnGameOverChanged;
+        HeartsHud.EnsureCreated();
+
         playersAtEnd.OnValueChanged += OnPlayersAtEndChanged;
         levelCompleted.OnValueChanged += OnLevelCompletedChanged;
         currentLevel.OnValueChanged += OnCurrentLevelChanged;
@@ -99,6 +155,10 @@ public class DungeonProgressManager : NetworkBehaviour
         levelCompleted.OnValueChanged -= OnLevelCompletedChanged;
         currentLevel.OnValueChanged -= OnCurrentLevelChanged;
         lastCompletionTime.OnValueChanged -= OnLastCompletionTimeChanged;
+        gameOver.OnValueChanged -= OnGameOverChanged;
+
+        if (Instance == this)
+            Instance = null;
     }
     
     void Update()
@@ -140,7 +200,7 @@ public class DungeonProgressManager : NetworkBehaviour
     
     void CheckPlayersAtEnd()
     {
-        if (endZoneObject == null || levelCompleted.Value) return;
+        if (endZoneObject == null || levelCompleted.Value || gameOver.Value) return;
         
         var currentPlayersInZone = new List<ulong>();
         foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
@@ -206,15 +266,20 @@ public class DungeonProgressManager : NetworkBehaviour
 
     async void GenerateNewLevel()
     {
+        await GenerateLevelAsync(currentLevel.Value + 1);
+    }
+
+    async System.Threading.Tasks.Task GenerateLevelAsync(int level)
+    {
         if (!IsServer) return;
-        
-        Debug.Log("Generating a new level...");
-        
+
+        Debug.Log($"Generating level {level}...");
+
         playersInEndZone.Clear();
         playersAtEnd.Value = 0;
         lastCompletionTime.Value = 0f;
-        currentLevel.Value++;
-        
+        currentLevel.Value = level;
+
         if (dungeonGenerator != null)
         {
             await dungeonGenerator.RegenerateDungeonForLevelAsync(
@@ -231,7 +296,11 @@ public class DungeonProgressManager : NetworkBehaviour
 
         FindEndZone();
         levelCompleted.Value = false;
-        
+
+        // A new random mutator for every level (the documented flow; it was not called before).
+        if (LevelMutatorManager.Instance != null)
+            LevelMutatorManager.Instance.PickMutatorForLevel(currentLevel.Value);
+
         UpdateLevelStartedClientRpc(currentLevel.Value);
 
         RelayManager relayManager = FindObjectOfType<RelayManager>();
@@ -322,12 +391,147 @@ public class DungeonProgressManager : NetworkBehaviour
     
     void OnClientConnected(ulong clientId)
     {
+        EnsureHearts(clientId);
         UpdateUI();
     }
-    
+
     void OnClientDisconnected(ulong clientId)
     {
+        int index = FindHeartsIndex(clientId);
+        if (index >= 0)
+            playerHearts.RemoveAt(index);
+
         UpdateUI();
+    }
+
+    // ================= HEALTH =================
+
+    /// <summary>Hearts of a player; a player the server has not registered yet counts as full.</summary>
+    public int GetHearts(ulong clientId)
+    {
+        int index = FindHeartsIndex(clientId);
+        return index >= 0 ? playerHearts[index].Hearts : maxHearts;
+    }
+
+    /// <summary>The other player in the room, if there is one.</summary>
+    public bool TryGetPartnerId(ulong localClientId, out ulong partnerId)
+    {
+        foreach (PlayerHearts entry in playerHearts)
+        {
+            if (entry.ClientId != localClientId)
+            {
+                partnerId = entry.ClientId;
+                return true;
+            }
+        }
+
+        partnerId = 0;
+        return false;
+    }
+
+    public bool DidLocalPlayerLose()
+    {
+        return NetworkManager.Singleton != null && gameOverPlayer.Value == NetworkManager.Singleton.LocalClientId;
+    }
+
+    /// <summary>
+    /// Server: the player was hit by a trap (laser, fall off the map). Takes one heart; when a player has no hearts
+    /// left, both players lose.
+    /// </summary>
+    public void DamagePlayer(ulong clientId)
+    {
+        if (!IsServer || gameOver.Value || levelCompleted.Value || restarting)
+            return;
+
+        if (lastDamageTime.TryGetValue(clientId, out float lastTime) && Time.time - lastTime < damageCooldown)
+            return;
+
+        lastDamageTime[clientId] = Time.time;
+
+        EnsureHearts(clientId);
+        int index = FindHeartsIndex(clientId);
+        PlayerHearts entry = playerHearts[index];
+        entry.Hearts = Mathf.Max(0, entry.Hearts - 1);
+        playerHearts[index] = entry;
+
+        if (entry.Hearts > 0)
+            return;
+
+        gameOverPlayer.Value = clientId;
+        gameOver.Value = true;
+
+        if (nextLevelCoroutine != null)
+        {
+            StopCoroutine(nextLevelCoroutine);
+            nextLevelCoroutine = null;
+        }
+    }
+
+    /// <summary>Restart button on the game over screen (either player).</summary>
+    public void RequestRestart()
+    {
+        RequestRestartRpc();
+    }
+
+    [Rpc(SendTo.Server)]
+    private void RequestRestartRpc()
+    {
+        if (gameOver.Value && !restarting)
+            RestartGame();
+    }
+
+    // Server: full hearts, back to level 1 with a new maze, a new mutator and a new timer.
+    private async void RestartGame()
+    {
+        restarting = true;
+
+        for (int i = 0; i < playerHearts.Count; i++)
+        {
+            PlayerHearts entry = playerHearts[i];
+            entry.Hearts = maxHearts;
+            playerHearts[i] = entry;
+        }
+
+        lastDamageTime.Clear();
+
+        await GenerateLevelAsync(1);
+
+        gameOver.Value = false;
+        restarting = false;
+    }
+
+    private void EnsureHearts(ulong clientId)
+    {
+        if (IsServer && FindHeartsIndex(clientId) < 0)
+            playerHearts.Add(new PlayerHearts { ClientId = clientId, Hearts = maxHearts });
+    }
+
+    private int FindHeartsIndex(ulong clientId)
+    {
+        for (int i = 0; i < playerHearts.Count; i++)
+        {
+            if (playerHearts[i].ClientId == clientId)
+                return i;
+        }
+
+        return -1;
+    }
+
+    private void OnGameOverChanged(bool oldValue, bool newValue)
+    {
+        RelayManager relayManager = FindObjectOfType<RelayManager>();
+
+        if (newValue)
+        {
+            AudioManager.Play(Sfx.GameOver);
+
+            if (relayManager != null)
+                relayManager.ShowGameOver(DidLocalPlayerLose(), currentLevel.Value);
+        }
+        else if (relayManager != null)
+        {
+            relayManager.HideGameOver();
+        }
     }
     
     void UpdateUI()

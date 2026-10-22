@@ -34,7 +34,7 @@ public class LevelMutatorSettings
 
     [Header("Wind")]
     [Tooltip("Meters per second of push. Walk speed is about 2, sprint about 5.3.")]
-    [Range(0.2f, 4f)] public float windStrength = 1.4f;
+    [Range(0.2f, 4f)] public float windStrength = 0.8f;
     [Tooltip("How often the wind direction changes, in seconds.")]
     public float windChangeInterval = 12f;
     [Tooltip("How many seconds before the change the warning is shown.")]

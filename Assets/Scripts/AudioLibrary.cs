@@ -13,7 +13,10 @@ public enum Sfx
     PlatformFall,
     MutatorIntro,
     WindWarning,
-    LevelComplete
+    LevelComplete,
+    PressurePlate,
+    FallRespawn,
+    GameOver
 }
 
 /// <summary>

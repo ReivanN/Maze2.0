@@ -21,6 +21,8 @@ public class CaveDungeonGenerator : NetworkBehaviour
     public GameObject fallingPlatformPrefab;
     public GameObject laserTrapPrefab;
     public GameObject laserSwitchPrefab;
+    [Tooltip("Cube pushed onto the laser plate. Empty = Resources/PushableCube.")]
+    public GameObject pushableCubePrefab;
 
     [Header("Падающие платформы")]
     [SerializeField] private int fallingPlatformRowsPerSideMin = 2;
@@ -35,11 +37,25 @@ public class CaveDungeonGenerator : NetworkBehaviour
     [SerializeField] private float laserWallPadding = 0.15f;
     [SerializeField] private float laserSwitchHeightOffset = 0.1f;
 
+    [Header("Куб для нажимной плиты")]
+    [Tooltip("Минимальная длина пути (в клетках), который куб нужно протолкать до плиты.")]
+    [SerializeField] private int cubeMinPathLength = 4;
+    [SerializeField] private int cubeMaxPathLength = 10;
+    [SerializeField] private float cubeSpawnHeight = 0.6f;
+
     [Header("Финиш")]
     [SerializeField] private float endHeightOffset = 0.01f;
 
     [Header("Player")]
     public float playerHeightOffset = 1f;
+
+    [Header("Падение за карту")]
+    [Tooltip("Игрок ниже этой высоты считается упавшим за карту и возрождается на своём старте, как после лазера.")]
+    [SerializeField] private float fallRespawnHeight = -8f;
+    [Tooltip("Пауза перед повторной проверкой: сервер видит новую позицию игрока только после его следующего обновления.")]
+    [SerializeField] private float fallRespawnCooldown = 1.5f;
+
+    private readonly Dictionary<ulong, float> lastFallRespawnTime = new Dictionary<ulong, float>();
 
     private int[,] map;
 
@@ -136,6 +152,12 @@ public class CaveDungeonGenerator : NetworkBehaviour
         startA = new Vector2Int(1, cy);
         startB = new Vector2Int(width - 2, cy);
 
+        // Door cells are kept out of the maze tree: otherwise a corridor can run through a door cell and
+        // everything behind it is reachable only through the closed door. Marked as "taken" (2) here,
+        // they become walkable below and get exactly one connection to their side (ConnectAnchorToSide).
+        map[doorLeft.x, doorLeft.y] = 2;
+        map[doorRight.x, doorRight.y] = 2;
+
         GenerateSideGrowingTree(startA, 1, cx - 1);
         GenerateSideGrowingTree(startB, cx + 1, width - 2);
 
@@ -149,22 +171,17 @@ public class CaveDungeonGenerator : NetworkBehaviour
         ChooseFallingPlatformCells();
     }
 
+    // Maze cells are at odd coordinates, walls between them at even ones. The middle row (starts, doors, exit)
+    // is height / 2, so it must be odd: height % 4 == 3. With height % 4 == 1 the middle row was even, every
+    // corridor ran on even rows and the rows next to the top and bottom border stayed solid (2-block walls).
+    // The middle column (width / 2) is the wall between the halves, so it must be even: width % 4 == 1.
+    const int WidthRemainder = 1;
+    const int HeightRemainder = 3;
+
     void NormalizeMazeDimensions()
     {
-        width = Mathf.Max(13, width);
-        height = Mathf.Max(9, height);
-
-        if (width % 2 == 0)
-            width++;
-
-        if (height % 2 == 0)
-            height++;
-
-        while (width % 4 != 1)
-            width += 2;
-
-        while (height % 4 != 1)
-            height += 2;
+        width = NormalizeProgressionDimension(width, 13, WidthRemainder);
+        height = NormalizeProgressionDimension(height, 9, HeightRemainder);
     }
 
     void EnsureBaseDimensions()
@@ -181,33 +198,35 @@ public class CaveDungeonGenerator : NetworkBehaviour
     void ApplyLevelSize(int level, int widthIncreasePerLevel, int heightIncreasePerLevel, int maxWidth, int maxHeight)
     {
         int progressionLevel = Mathf.Max(1, level) - 1;
-        width = ClampToProgressionSize(baseWidth + progressionLevel * Mathf.Max(0, widthIncreasePerLevel), 13, maxWidth);
-        height = ClampToProgressionSize(baseHeight + progressionLevel * Mathf.Max(0, heightIncreasePerLevel), 9, maxHeight);
+        width = ClampToProgressionSize(baseWidth + progressionLevel * Mathf.Max(0, widthIncreasePerLevel), 13, maxWidth, WidthRemainder);
+        height = ClampToProgressionSize(baseHeight + progressionLevel * Mathf.Max(0, heightIncreasePerLevel), 9, maxHeight, HeightRemainder);
     }
 
-    int ClampToProgressionSize(int value, int minValue, int maxValue)
+    int ClampToProgressionSize(int value, int minValue, int maxValue, int remainder)
     {
-        int normalized = NormalizeProgressionDimension(value, minValue);
+        int normalized = NormalizeProgressionDimension(value, minValue, remainder);
 
         if (maxValue <= 0)
             return normalized;
 
-        int normalizedMax = NormalizeProgressionDimension(maxValue, minValue);
+        int normalizedMax = NormalizeProgressionDimension(maxValue, minValue, remainder);
+        int normalizedMin = NormalizeProgressionDimension(minValue, minValue, remainder);
 
-        while (normalized > normalizedMax && normalized > minValue)
+        // Steps of 4 keep the remainder, so the result is always a valid size.
+        while (normalized > normalizedMax && normalized - 4 >= normalizedMin)
             normalized -= 4;
 
-        return Mathf.Max(minValue, normalized);
+        return normalized;
     }
 
-    int NormalizeProgressionDimension(int value, int minValue)
+    int NormalizeProgressionDimension(int value, int minValue, int remainder)
     {
         value = Mathf.Max(minValue, value);
 
         if (value % 2 == 0)
             value++;
 
-        while (value % 4 != 1)
+        while (value % 4 != remainder)
             value += 2;
 
         return value;
@@ -529,6 +548,10 @@ public class CaveDungeonGenerator : NetworkBehaviour
 
         int centerX = width / 2;
 
+        // Only dead ends the player of that side can actually walk to (doors are closed at the start).
+        HashSet<Vector2Int> leftReachable = GetReachableCells(startA, false);
+        HashSet<Vector2Int> rightReachable = GetReachableCells(startB, true);
+
         for (int x = 1; x < width - 1; x++)
         {
             for (int y = 1; y < height - 1; y++)
@@ -550,10 +573,20 @@ public class CaveDungeonGenerator : NetworkBehaviour
                     if (cell == startA || cell == startB || cell == exitCell)
                         continue;
 
+                    // A button or a plate on a falling platform would fall with it.
+                    if (fallingPlatformCells.Contains(cell))
+                        continue;
+
                     if (x < centerX)
-                        leftDeadEnds.Add(cell);
+                    {
+                        if (leftReachable.Contains(cell))
+                            leftDeadEnds.Add(cell);
+                    }
                     else if (x > centerX)
-                        rightDeadEnds.Add(cell);
+                    {
+                        if (rightReachable.Contains(cell))
+                            rightDeadEnds.Add(cell);
+                    }
                 }
             }
         }
@@ -599,8 +632,15 @@ public class CaveDungeonGenerator : NetworkBehaviour
         if (laserTrapPrefab == null || laserSwitchPrefab == null)
             return;
 
-        bool canBlockLeftKey = HasSwitchCandidate(rightFreeDeadEnds, leftKeyCell, rightKeyCell, true);
-        bool canBlockRightKey = HasSwitchCandidate(leftFreeDeadEnds, leftKeyCell, rightKeyCell, false);
+        GameObject cubePrefab = pushableCubePrefab != null ? pushableCubePrefab : Resources.Load<GameObject>("PushableCube");
+        bool needCube = cubePrefab != null;
+
+        // The laser blocks the key of one side; the plate (and its cube) is on the other side,
+        // so the other player has to solve it.
+        bool canBlockLeftKey = TryChoosePlate(rightFreeDeadEnds, leftKeyCell, rightKeyCell, true, needCube,
+            out Vector2Int rightPlateCell, out Vector2Int rightCubeCell);
+        bool canBlockRightKey = TryChoosePlate(leftFreeDeadEnds, leftKeyCell, rightKeyCell, false, needCube,
+            out Vector2Int leftPlateCell, out Vector2Int leftCubeCell);
 
         if (!canBlockLeftKey && !canBlockRightKey)
             return;
@@ -608,19 +648,12 @@ public class CaveDungeonGenerator : NetworkBehaviour
         bool blockLeftSide = canBlockLeftKey && (!canBlockRightKey || Random.value > 0.5f);
 
         Vector2Int protectedCell = blockLeftSide ? leftKeyCell : rightKeyCell;
-        List<Vector2Int> switchCandidates = GetSwitchCandidates(
-            blockLeftSide ? rightFreeDeadEnds : leftFreeDeadEnds,
-            leftKeyCell,
-            rightKeyCell,
-            blockLeftSide);
+        Vector2Int switchCell = blockLeftSide ? rightPlateCell : leftPlateCell;
+        Vector2Int cubeCell = blockLeftSide ? rightCubeCell : leftCubeCell;
 
         if (!TryGetDeadEndEntry(protectedCell, out Vector2Int entryCell))
             return;
 
-        if (switchCandidates.Count == 0)
-            return;
-
-        Vector2Int switchCell = switchCandidates[Random.Range(0, switchCandidates.Count)];
         Vector2Int corridorDirection = protectedCell - entryCell;
         Vector2Int laserBeamDirection = new Vector2Int(-corridorDirection.y, corridorDirection.x);
 
@@ -643,14 +676,187 @@ public class CaveDungeonGenerator : NetworkBehaviour
         if (laserTrap != null && TryGetLaserSegment(entryCell, laserBeamDirection, out Vector3 segmentStart, out Vector3 segmentEnd))
             laserTrap.ConfigureBarrier(segmentStart, segmentEnd, laserBarrierHeight, laserBarrierThickness);
 
+        // The laser-off camera shot looks from the corridor into the blocked dead end.
         if (laserTrap != null && laserSwitch != null)
-            laserSwitch.SetTargetLaser(laserTrap);
+            laserSwitch.SetTargetLaser(laserTrap, CellDirectionToWorld(corridorDirection));
+
+        if (needCube && laserSwitch != null)
+        {
+            GameObject cubeObj = Spawn(cubePrefab, CellToWorld(cubeCell) + Vector3.up * cubeSpawnHeight);
+            PushableCube cube = cubeObj.GetComponent<PushableCube>();
+
+            if (cube != null)
+                laserSwitch.SetRequiredCube(cube);
+            else
+                Debug.LogError("Pushable cube prefab must have a PushableCube component.");
+        }
     }
 
-    bool HasSwitchCandidate(List<Vector2Int> preferredCandidates, Vector2Int leftKeyCell, Vector2Int rightKeyCell, bool useRightSide)
+    /// <summary>
+    /// Picks a free reachable dead end for the plate and, when a cube is needed, a cube cell on the same side
+    /// from which the cube can be pushed to the plate.
+    /// </summary>
+    bool TryChoosePlate(
+        List<Vector2Int> freeDeadEnds,
+        Vector2Int leftKeyCell,
+        Vector2Int rightKeyCell,
+        bool useRightSide,
+        bool needCube,
+        out Vector2Int plateCell,
+        out Vector2Int cubeCell)
     {
-        return GetSwitchCandidates(preferredCandidates, leftKeyCell, rightKeyCell, useRightSide).Count > 0;
+        List<Vector2Int> candidates = GetSwitchCandidates(freeDeadEnds, leftKeyCell, rightKeyCell, useRightSide);
+        ShuffleList(candidates);
+
+        foreach (Vector2Int candidate in candidates)
+        {
+            cubeCell = default;
+
+            if (!needCube || TryChooseCubeCell(candidate, useRightSide, leftKeyCell, rightKeyCell, out cubeCell))
+            {
+                plateCell = candidate;
+                return true;
+            }
+        }
+
+        plateCell = default;
+        cubeCell = default;
+        return false;
     }
+
+    /// <summary>
+    /// Walks from the plate over the cells the cube can be pushed through (no falling platforms, no doors)
+    /// and picks a corridor cell whose path to the plate is between cubeMinPathLength and cubeMaxPathLength.
+    /// </summary>
+    bool TryChooseCubeCell(Vector2Int plateCell, bool useRightSide, Vector2Int leftKeyCell, Vector2Int rightKeyCell, out Vector2Int cubeCell)
+    {
+        Dictionary<Vector2Int, int> distances = new Dictionary<Vector2Int, int> { { plateCell, 0 } };
+        Queue<Vector2Int> queue = new Queue<Vector2Int>();
+        queue.Enqueue(plateCell);
+
+        while (queue.Count > 0)
+        {
+            Vector2Int current = queue.Dequeue();
+
+            foreach (Vector2Int direction in CardinalDirections)
+            {
+                Vector2Int next = current + direction;
+
+                if (distances.ContainsKey(next) || !IsSideWalkable(next, useRightSide) || fallingPlatformCells.Contains(next))
+                    continue;
+
+                distances[next] = distances[current] + 1;
+                queue.Enqueue(next);
+            }
+        }
+
+        Vector2Int sideStart = useRightSide ? startB : startA;
+        int minLength = Mathf.Max(2, Mathf.Min(cubeMinPathLength, cubeMaxPathLength));
+        int maxLength = Mathf.Max(minLength, cubeMaxPathLength);
+
+        List<Vector2Int> inRange = new List<Vector2Int>();
+        List<Vector2Int> fallback = new List<Vector2Int>();
+
+        foreach (KeyValuePair<Vector2Int, int> pair in distances)
+        {
+            Vector2Int cell = pair.Key;
+
+            if (pair.Value < 2 || cell == leftKeyCell || cell == rightKeyCell || cell == exitCell)
+                continue;
+
+            // Not on top of the spawning player.
+            if (Mathf.Abs(cell.x - sideStart.x) + Mathf.Abs(cell.y - sideStart.y) < 2)
+                continue;
+
+            // A corridor or a junction, not a dead end: the player must be able to get behind the cube.
+            if (CountWalkableNeighbours(cell) < 2)
+                continue;
+
+            if (pair.Value >= minLength && pair.Value <= maxLength)
+                inRange.Add(cell);
+            else
+                fallback.Add(cell);
+        }
+
+        List<Vector2Int> pool = inRange.Count > 0 ? inRange : fallback;
+
+        if (pool.Count == 0)
+        {
+            cubeCell = default;
+            return false;
+        }
+
+        cubeCell = pool[Random.Range(0, pool.Count)];
+        return true;
+    }
+
+    /// <summary>Cells the player of one side can walk to from their start while the doors are closed.</summary>
+    HashSet<Vector2Int> GetReachableCells(Vector2Int start, bool useRightSide)
+    {
+        HashSet<Vector2Int> reachable = new HashSet<Vector2Int>();
+
+        if (!IsSideWalkable(start, useRightSide))
+            return reachable;
+
+        Queue<Vector2Int> queue = new Queue<Vector2Int>();
+        reachable.Add(start);
+        queue.Enqueue(start);
+
+        while (queue.Count > 0)
+        {
+            Vector2Int current = queue.Dequeue();
+
+            foreach (Vector2Int direction in CardinalDirections)
+            {
+                Vector2Int next = current + direction;
+
+                if (!reachable.Contains(next) && IsSideWalkable(next, useRightSide))
+                {
+                    reachable.Add(next);
+                    queue.Enqueue(next);
+                }
+            }
+        }
+
+        return reachable;
+    }
+
+    bool IsSideWalkable(Vector2Int cell, bool useRightSide)
+    {
+        if (!IsInside(cell.x, cell.y) || map[cell.x, cell.y] != 1)
+            return false;
+
+        int centerX = width / 2;
+        if (useRightSide ? cell.x <= centerX : cell.x >= centerX)
+            return false;
+
+        // Door cells are blocked until the other player presses a button.
+        Vector2Int leftDoorCell = new Vector2Int(centerX - 1, height / 2);
+        Vector2Int rightDoorCell = new Vector2Int(centerX + 1, height / 2);
+        return cell != leftDoorCell && cell != rightDoorCell;
+    }
+
+    int CountWalkableNeighbours(Vector2Int cell)
+    {
+        int count = 0;
+
+        foreach (Vector2Int direction in CardinalDirections)
+        {
+            Vector2Int neighbour = cell + direction;
+            if (IsInside(neighbour.x, neighbour.y) && map[neighbour.x, neighbour.y] == 1)
+                count++;
+        }
+
+        return count;
+    }
+
+    static readonly Vector2Int[] CardinalDirections =
+    {
+        Vector2Int.up,
+        Vector2Int.down,
+        Vector2Int.left,
+        Vector2Int.right
+    };
 
     List<Vector2Int> GetSwitchCandidates(List<Vector2Int> preferredCandidates, Vector2Int leftKeyCell, Vector2Int rightKeyCell, bool useRightSide)
     {
@@ -670,23 +876,8 @@ public class CaveDungeonGenerator : NetworkBehaviour
                 candidates.Add(candidate);
         }
 
-        if (candidates.Count > 0)
-            return candidates;
-
-        int centerX = width / 2;
-        int minX = useRightSide ? centerX + 1 : 1;
-        int maxX = useRightSide ? width - 2 : centerX - 1;
-
-        for (int x = minX; x <= maxX; x++)
-        {
-            for (int y = 1; y < height - 1; y++)
-            {
-                Vector2Int cell = new Vector2Int(x, y);
-                if (IsValidLaserSwitchCell(cell, useRightSide, excluded))
-                    candidates.Add(cell);
-            }
-        }
-
+        // Only free dead ends the player can reach. There used to be a fallback to any corridor cell,
+        // which put the plate in the middle of a corridor; without a dead end there is no laser puzzle on this level.
         return candidates;
     }
 
@@ -828,6 +1019,50 @@ public class CaveDungeonGenerator : NetworkBehaviour
         });
     }
 
+    // Server: a player who fell off the map (for example through a falling platform) goes back to their start,
+    // the same way LaserTrap respawns a player hit by a laser.
+    void Update()
+    {
+        if (!IsServer || !IsSpawned || map == null || NetworkManager.Singleton == null)
+            return;
+
+        foreach (NetworkClient client in NetworkManager.Singleton.ConnectedClientsList)
+        {
+            NetworkObject player = client.PlayerObject;
+            if (player == null || player.transform.position.y > fallRespawnHeight)
+                continue;
+
+            if (lastFallRespawnTime.TryGetValue(client.ClientId, out float lastTime) &&
+                Time.time - lastTime < fallRespawnCooldown)
+            {
+                continue;
+            }
+
+            lastFallRespawnTime[client.ClientId] = Time.time;
+            RespawnFallenPlayer(client.ClientId, player);
+        }
+    }
+
+    void RespawnFallenPlayer(ulong clientId, NetworkObject player)
+    {
+        if (DungeonProgressManager.Instance != null)
+            DungeonProgressManager.Instance.DamagePlayer(clientId);
+
+        Vector3 spawnPos = CellToWorld(GetSpawnCell(clientId));
+        spawnPos.y = playerHeightOffset;
+
+        player.transform.position = spawnPos;
+
+        // The player position is client-authoritative, so the owner has to move its own character.
+        FallRespawnClientRpc(spawnPos, new ClientRpcParams
+        {
+            Send = new ClientRpcSendParams
+            {
+                TargetClientIds = new[] { clientId }
+            }
+        });
+    }
+
     Vector2Int GetSpawnCell(ulong clientId)
     {
         return clientId == NetworkManager.ServerClientId ? startA : startB;
@@ -841,6 +1076,14 @@ public class CaveDungeonGenerator : NetworkBehaviour
     [ClientRpc]
     void TeleportPlayerClientRpc(Vector3 spawnPos, ClientRpcParams clientRpcParams = default)
     {
+        StartCoroutine(TeleportLocalPlayerWhenReady(spawnPos));
+    }
+
+    // Same teleport as at the level start, plus a sound so the player understands what happened.
+    [ClientRpc]
+    void FallRespawnClientRpc(Vector3 spawnPos, ClientRpcParams clientRpcParams = default)
+    {
+        AudioManager.Play(Sfx.FallRespawn);
         StartCoroutine(TeleportLocalPlayerWhenReady(spawnPos));
     }
 
@@ -941,6 +1184,15 @@ public class CaveDungeonGenerator : NetworkBehaviour
             }
         }
         spawnedObjects.Clear();
+    }
+
+    void ShuffleList(List<Vector2Int> list)
+    {
+        for (int i = list.Count - 1; i > 0; i--)
+        {
+            int r = Random.Range(0, i + 1);
+            (list[i], list[r]) = (list[r], list[i]);
+        }
     }
 
     void Shuffle(Vector2Int[] arr)

@@ -111,6 +111,18 @@ public class LaserTrap : NetworkBehaviour
         TryRespawnHitPlayer(backwardHit);
     }
 
+    /// <summary>Middle of the laser barrier, at about chest height (used by the laser-off camera shot).</summary>
+    public Vector3 BarrierCenter
+    {
+        get
+        {
+            if (!hasConfiguredSegment.Value)
+                return transform.position + Vector3.up;
+
+            return (configuredStart.Value + configuredEnd.Value) * 0.5f + Vector3.up * (GetConfiguredHeight() * 0.3f);
+        }
+    }
+
     public void ConfigureSegment(Vector3 start, Vector3 end)
     {
         ConfigureBarrier(start, end, laserHeight, laserThickness);
@@ -240,6 +252,9 @@ public class LaserTrap : NetworkBehaviour
         if (!NetworkManager.Singleton.ConnectedClients.TryGetValue(clientId, out var client)) return;
         if (client.PlayerObject == null) return;
 
+        if (DungeonProgressManager.Instance != null)
+            DungeonProgressManager.Instance.DamagePlayer(clientId);
+
         Vector3 spawnPos = GetSpawnPosition(clientId);
         client.PlayerObject.transform.position = spawnPos;
 
@@ -313,6 +328,9 @@ public class LaserTrap : NetworkBehaviour
 
     private void OnActiveChanged(bool oldValue, bool newValue)
     {
+        if (oldValue && !newValue)
+            AudioManager.Play(Sfx.LaserSwitch); // power-down sound, heard during the laser-off camera shot
+
         ApplyActiveState(newValue);
     }
 
