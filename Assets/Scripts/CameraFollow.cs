@@ -21,5 +21,12 @@ public class CameraFollow : NetworkBehaviour
 
         vcam.Follow = transform;
         vcam.LookAt = transform;
+
+        // Third-person view (default) or the scene's top-down view, switched with V.
+        CameraViewMode viewMode = GetComponent<CameraViewMode>();
+        if (viewMode == null)
+            viewMode = gameObject.AddComponent<CameraViewMode>();
+
+        viewMode.Configure(vcam);
     }
 }
