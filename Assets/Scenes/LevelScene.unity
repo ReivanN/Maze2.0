@@ -654,6 +654,7 @@ MonoBehaviour:
   laserTrapPrefab: {fileID: 8283847408958263004, guid: 72005a77723ce43a68173131ab388110, type: 3}
   laserSwitchPrefab: {fileID: 7581313357955315418, guid: 97a37d2199ef94f1bb69dba6dac5bc9b, type: 3}
   pushableCubePrefab: {fileID: 0}
+  spikeTrapPrefab: {fileID: 0}
   fallingPlatformRowsPerSideMin: 2
   fallingPlatformRowsPerSideMax: 3
   fallingPlatformRowLengthMin: 2
@@ -666,8 +667,14 @@ MonoBehaviour:
   cubeMinPathLength: 4
   cubeMaxPathLength: 10
   cubeSpawnHeight: 0.6
+  spikeTrapsPerSideMin: 3
+  spikeTrapsPerSideMax: 7
+  spikeMinDistanceFromStart: 3
+  spikeHeightOffset: 0.01
   endHeightOffset: 0.01
   playerHeightOffset: 1
+  fallRespawnHeight: -8
+  fallRespawnCooldown: 1.5
 --- !u!114 &768276830
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -769,6 +776,8 @@ MonoBehaviour:
   progressText: {fileID: 0}
   levelText: {fileID: 0}
   createLevelTextIfMissing: 1
+  maxHearts: 3
+  damageCooldown: 2
 --- !u!1 &832575517
 GameObject:
   m_ObjectHideFlags: 0

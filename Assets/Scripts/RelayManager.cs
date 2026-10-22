@@ -81,6 +81,9 @@ private GameObject displaySettingsPanel;
 
     /// <summary>True from the moment the host presses Start until the player leaves the room.</summary>
     public bool IsGameplayStarted => gameplayStarted;
+
+    /// <summary>The pause menu or the game over screen is open (gameplay keys like E / mouse must do nothing).</summary>
+    public bool IsMenuOpen => pauseMenuOpen || gameOverOpen;
     private bool gameplayReady;
     private bool timerStarted;
     private bool pauseMenuOpen;

@@ -83,17 +83,17 @@ public class AudioManager : MonoBehaviour
     }
 
     /// <summary>3D sound at a point in the level, quieter the farther the local player is.</summary>
-    public static void PlayAt(Sfx id, Vector3 position)
+    public static void PlayAt(Sfx id, Vector3 position, float maxDistance = SpatialMaxDistance)
     {
         AudioManager manager = Instance;
         if (manager == null || !manager.TryGetSound(id, out AudioClip clip, out float volume))
             return;
 
-        PlayClipAt(clip, position, volume);
+        PlayClipAt(clip, position, volume, maxDistance);
     }
 
     /// <summary>Replacement for AudioSource.PlayClipAtPoint that respects the sound volume setting.</summary>
-    public static void PlayClipAt(AudioClip clip, Vector3 position, float volume)
+    public static void PlayClipAt(AudioClip clip, Vector3 position, float volume, float maxDistance = SpatialMaxDistance)
     {
         AudioManager manager = Instance;
         if (manager == null || clip == null)
@@ -108,7 +108,7 @@ public class AudioManager : MonoBehaviour
         source.spatialBlend = 1f;
         source.rolloffMode = AudioRolloffMode.Linear;
         source.minDistance = 2f;
-        source.maxDistance = SpatialMaxDistance;
+        source.maxDistance = maxDistance;
         source.Play();
 
         Destroy(soundObject, clip.length + 0.1f);

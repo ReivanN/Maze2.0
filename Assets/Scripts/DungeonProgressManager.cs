@@ -435,16 +435,16 @@ public class DungeonProgressManager : NetworkBehaviour
     }
 
     /// <summary>
-    /// Server: the player was hit by a trap (laser, fall off the map). Takes one heart; when a player has no hearts
-    /// left, both players lose.
+    /// Server: the player was hit by a trap (laser, spikes, fall off the map). Takes one heart; when a player has
+    /// no hearts left, both players lose. Returns false when no heart was taken (cooldown, level over).
     /// </summary>
-    public void DamagePlayer(ulong clientId)
+    public bool DamagePlayer(ulong clientId)
     {
         if (!IsServer || gameOver.Value || levelCompleted.Value || restarting)
-            return;
+            return false;
 
         if (lastDamageTime.TryGetValue(clientId, out float lastTime) && Time.time - lastTime < damageCooldown)
-            return;
+            return false;
 
         lastDamageTime[clientId] = Time.time;
 
@@ -455,7 +455,7 @@ public class DungeonProgressManager : NetworkBehaviour
         playerHearts[index] = entry;
 
         if (entry.Hearts > 0)
-            return;
+            return true;
 
         gameOverPlayer.Value = clientId;
         gameOver.Value = true;
@@ -465,6 +465,8 @@ public class DungeonProgressManager : NetworkBehaviour
             StopCoroutine(nextLevelCoroutine);
             nextLevelCoroutine = null;
         }
+
+        return true;
     }
 
     /// <summary>Restart button on the game over screen (either player).</summary>

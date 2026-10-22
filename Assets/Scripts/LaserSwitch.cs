@@ -13,7 +13,7 @@ public class LaserSwitch : NetworkBehaviour
     [SerializeField] private Vector3 minimumTriggerSize = new Vector3(1.5f, 1.2f, 1.5f);
 
     [Header("Cube")]
-    [Tooltip("When set, only this cube pushed onto the plate presses it; players walking over it do nothing.")]
+    [Tooltip("When set, only this cube put or thrown onto the plate presses it; players walking over it do nothing.")]
     [SerializeField] private PushableCube requiredCube;
     [Tooltip("How far from the plate center (on X and Z) the cube still counts as standing on the plate. " +
              "1 = anywhere in the plate's maze cell (cells are 2 m), so a cube that visibly touches the plate counts.")]
@@ -77,10 +77,14 @@ public class LaserSwitch : NetworkBehaviour
         if (!IsServer || !IsSpawned || used || requiredCube == null || !requiredCube.IsSpawned)
             return;
 
+        // A cube carried over the plate (or flying over it) does not count: it has to be put down or land on it.
+        if (requiredCube.IsCarried)
+            return;
+
         Vector3 offset = requiredCube.transform.position - transform.position;
         bool onPlate = Mathf.Abs(offset.x) <= cubeDetectionHalfSize &&
                        Mathf.Abs(offset.z) <= cubeDetectionHalfSize &&
-                       Mathf.Abs(offset.y) <= 1.5f;
+                       offset.y <= 0.9f;
 
         if (onPlate)
         {

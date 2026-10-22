@@ -16,7 +16,9 @@ public enum Sfx
     LevelComplete,
     PressurePlate,
     FallRespawn,
-    GameOver
+    GameOver,
+    SpikesOut,
+    SpikeHit
 }
 
 /// <summary>

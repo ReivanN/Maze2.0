@@ -23,6 +23,8 @@ public class CaveDungeonGenerator : NetworkBehaviour
     public GameObject laserSwitchPrefab;
     [Tooltip("Cube pushed onto the laser plate. Empty = Resources/PushableCube.")]
     public GameObject pushableCubePrefab;
+    [Tooltip("Floor spikes. Empty = Resources/SpikeTrap.")]
+    public GameObject spikeTrapPrefab;
 
     [Header("Падающие платформы")]
     [SerializeField] private int fallingPlatformRowsPerSideMin = 2;
@@ -42,6 +44,16 @@ public class CaveDungeonGenerator : NetworkBehaviour
     [SerializeField] private int cubeMinPathLength = 4;
     [SerializeField] private int cubeMaxPathLength = 10;
     [SerializeField] private float cubeSpawnHeight = 0.6f;
+
+    [Header("Шипы")]
+    [SerializeField] private int spikeTrapsPerSideMin = 2;
+    [SerializeField] private int spikeTrapsPerSideMax = 3;
+    [Tooltip("Шипы не ставятся ближе этого расстояния (в клетках) к старту игрока.")]
+    [SerializeField] private int spikeMinDistanceFromStart = 3;
+    [SerializeField] private float spikeHeightOffset = 0.01f;
+
+    // Cells taken by buttons, the laser, its plate and cube: no spikes there.
+    private readonly HashSet<Vector2Int> reservedCells = new HashSet<Vector2Int>();
 
     [Header("Финиш")]
     [SerializeField] private float endHeightOffset = 0.01f;
@@ -501,6 +513,7 @@ public class CaveDungeonGenerator : NetworkBehaviour
     async Task BuildAsync()
     {
         Cleanup();
+        reservedCells.Clear();
 
         for (int x = 0; x < width; x++)
         {
@@ -599,6 +612,9 @@ public class CaveDungeonGenerator : NetworkBehaviour
             leftDeadEnds.Remove(leftButtonPos);
             rightDeadEnds.Remove(rightButtonPos);
 
+            reservedCells.Add(leftButtonPos);
+            reservedCells.Add(rightButtonPos);
+
             TrySpawnLaserPuzzle(leftButtonPos, rightButtonPos, leftDeadEnds, rightDeadEnds);
 
             GameObject leftButtonObj = Spawn(buttonPrefab, CellToWorld(leftButtonPos) + Vector3.up * 0.01f);
@@ -620,7 +636,74 @@ public class CaveDungeonGenerator : NetworkBehaviour
             rightButton.SetTargetDoor(leftDoor);
         }
 
+        SpawnSpikeTraps(false);
+        SpawnSpikeTraps(true);
+
         await Task.Yield();
+    }
+
+    /// <summary>
+    /// Floor spikes in corridors of one half: not near the start, not on buttons / the laser puzzle,
+    /// not on falling platforms and never next to another spike trap.
+    /// </summary>
+    void SpawnSpikeTraps(bool useRightSide)
+    {
+        GameObject prefab = spikeTrapPrefab != null ? spikeTrapPrefab : Resources.Load<GameObject>("SpikeTrap");
+        if (prefab == null)
+            return;
+
+        Vector2Int sideStart = useRightSide ? startB : startA;
+        HashSet<Vector2Int> reachable = GetReachableCells(sideStart, useRightSide);
+        List<Vector2Int> candidates = new List<Vector2Int>();
+
+        foreach (Vector2Int cell in reachable)
+        {
+            if (reservedCells.Contains(cell) || fallingPlatformCells.Contains(cell) || cell == exitCell)
+                continue;
+
+            if (Mathf.Abs(cell.x - sideStart.x) + Mathf.Abs(cell.y - sideStart.y) < spikeMinDistanceFromStart)
+                continue;
+
+            // Corridors and junctions only: a dead end with spikes is pointless.
+            if (CountWalkableNeighbours(cell) < 2)
+                continue;
+
+            candidates.Add(cell);
+        }
+
+        ShuffleList(candidates);
+
+        int minCount = Mathf.Max(0, Mathf.Min(spikeTrapsPerSideMin, spikeTrapsPerSideMax));
+        int maxCount = Mathf.Max(minCount, spikeTrapsPerSideMax);
+        int count = Random.Range(minCount, maxCount + 1);
+        List<Vector2Int> placed = new List<Vector2Int>();
+
+        foreach (Vector2Int cell in candidates)
+        {
+            if (placed.Count >= count)
+                break;
+
+            bool nextToOther = false;
+            foreach (Vector2Int other in placed)
+            {
+                if (Mathf.Abs(cell.x - other.x) + Mathf.Abs(cell.y - other.y) <= 2)
+                {
+                    nextToOther = true;
+                    break;
+                }
+            }
+
+            if (nextToOther)
+                continue;
+
+            GameObject trapObj = Spawn(prefab, CellToWorld(cell) + Vector3.up * spikeHeightOffset);
+            SpikeTrap trap = trapObj.GetComponent<SpikeTrap>();
+            if (trap != null)
+                trap.SetPhaseOffset(Random.Range(0f, 3f));
+
+            placed.Add(cell);
+            reservedCells.Add(cell);
+        }
     }
 
     void TrySpawnLaserPuzzle(
@@ -653,6 +736,11 @@ public class CaveDungeonGenerator : NetworkBehaviour
 
         if (!TryGetDeadEndEntry(protectedCell, out Vector2Int entryCell))
             return;
+
+        reservedCells.Add(entryCell);
+        reservedCells.Add(switchCell);
+        if (needCube)
+            reservedCells.Add(cubeCell);
 
         Vector2Int corridorDirection = protectedCell - entryCell;
         Vector2Int laserBeamDirection = new Vector2Int(-corridorDirection.y, corridorDirection.x);
