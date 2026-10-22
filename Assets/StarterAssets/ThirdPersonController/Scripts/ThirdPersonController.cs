@@ -28,6 +28,15 @@ namespace StarterAssets
         [Tooltip("Acceleration and deceleration")]
         public float SpeedChangeRate = 10.0f;
 
+        [Tooltip("Ice: the horizontal velocity is kept between frames. Input only pushes it towards the wanted direction, so turning around first has to cancel the slide")]
+        public bool UseMomentum = false;
+
+        [Tooltip("Ice: how fast input changes the velocity, m/s per second")]
+        public float MomentumAcceleration = 3.0f;
+
+        [Tooltip("Ice: how fast the slide stops without input, m/s per second")]
+        public float MomentumFriction = 1.2f;
+
         public AudioClip LandingAudioClip;
         public AudioClip[] FootstepAudioClips;
         [Range(0, 1)] public float FootstepAudioVolume = 0.5f;
@@ -86,6 +95,8 @@ namespace StarterAssets
         private float _rotationVelocity;
         private float _verticalVelocity;
         private float _terminalVelocity = 53.0f;
+        private Vector3 _momentumVelocity;
+        private Vector3 _lastMovePosition;
 
         // timeout deltatime
         private float _jumpTimeoutDelta;
@@ -267,9 +278,30 @@ namespace StarterAssets
 
             Vector3 targetDirection = Quaternion.Euler(0.0f, _targetRotation, 0.0f) * Vector3.forward;
 
+            Vector3 horizontalVelocity;
+            if (UseMomentum)
+            {
+                horizontalVelocity = UpdateMomentum(targetDirection, targetSpeed * inputMagnitude);
+            }
+            else
+            {
+                horizontalVelocity = targetDirection.normalized * _speed;
+                _momentumVelocity = horizontalVelocity; // stepping onto ice keeps the current speed
+            }
+
             // move the player
-            _controller.Move(targetDirection.normalized * (_speed * Time.deltaTime) +
+            _controller.Move(horizontalVelocity * Time.deltaTime +
                              new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
+
+            if (UseMomentum)
+            {
+                // A wall stops (or deflects) the slide: keep only what the controller could actually move.
+                Vector3 actual = new Vector3(_controller.velocity.x, 0.0f, _controller.velocity.z);
+                if (actual.sqrMagnitude < _momentumVelocity.sqrMagnitude)
+                    _momentumVelocity = actual;
+            }
+
+            _lastMovePosition = transform.position;
 
             // update animator if using character
             if (_hasAnimator)
@@ -277,6 +309,22 @@ namespace StarterAssets
                 _animator.SetFloat(_animIDSpeed, _animationBlend);
                 _animator.SetFloat(_animIDMotionSpeed, inputMagnitude);
             }
+        }
+
+        private Vector3 UpdateMomentum(Vector3 targetDirection, float targetSpeed)
+        {
+            // Teleported (respawn, new level): do not carry the old slide to the new place.
+            if ((transform.position - _lastMovePosition).sqrMagnitude > 9.0f)
+                _momentumVelocity = Vector3.zero;
+
+            bool hasInput = _input.move != Vector2.zero;
+            Vector3 wanted = hasInput ? targetDirection.normalized * targetSpeed : Vector3.zero;
+            float rate = hasInput ? MomentumAcceleration : MomentumFriction;
+
+            // Moves the velocity vector towards the wanted one at a limited rate. Pressing the opposite
+            // direction first brakes the slide down to zero, and only then accelerates the other way.
+            _momentumVelocity = Vector3.MoveTowards(_momentumVelocity, wanted, rate * Time.deltaTime);
+            return _momentumVelocity;
         }
 
         private void JumpAndGravity()
@@ -376,7 +424,7 @@ namespace StarterAssets
                 if (FootstepAudioClips.Length > 0)
                 {
                     var index = Random.Range(0, FootstepAudioClips.Length);
-                    AudioSource.PlayClipAtPoint(FootstepAudioClips[index], transform.TransformPoint(_controller.center), FootstepAudioVolume);
+                    AudioManager.PlayClipAt(FootstepAudioClips[index], transform.TransformPoint(_controller.center), FootstepAudioVolume);
                 }
             }
         }
@@ -385,7 +433,7 @@ namespace StarterAssets
         {
             if (animationEvent.animatorClipInfo.weight > 0.5f)
             {
-                AudioSource.PlayClipAtPoint(LandingAudioClip, transform.TransformPoint(_controller.center), FootstepAudioVolume);
+                AudioManager.PlayClipAt(LandingAudioClip, transform.TransformPoint(_controller.center), FootstepAudioVolume);
             }
         }
     }

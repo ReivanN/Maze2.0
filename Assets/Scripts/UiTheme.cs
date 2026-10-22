@@ -108,6 +108,7 @@ public class UiTheme : ScriptableObject
 
         UnityEngine.UI.Button button = buttonObject.AddComponent<UnityEngine.UI.Button>();
         button.targetGraphic = background;
+        buttonObject.AddComponent<UiButtonSounds>();
 
         return button;
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using TMPro;
 using Unity.Collections;
@@ -48,6 +49,12 @@ public class RelayManager : MonoBehaviour
     private UnityEngine.UI.Button startGameButton;
     private TextMeshProUGUI fullscreenButtonLabel;
     private TextMeshProUGUI resolutionButtonLabel;
+    private readonly List<TextMeshProUGUI> musicVolumeLabels = new List<TextMeshProUGUI>();
+    private readonly List<TextMeshProUGUI> sfxVolumeLabels = new List<TextMeshProUGUI>();
+    private static readonly float[] VolumeSteps = { 0f, 0.25f, 0.5f, 0.75f, 1f };
+    private int lastLobbyPlayers;
+    private readonly List<RectTransform> colorSwatches = new List<RectTransform>();
+    private TextMeshProUGUI colorPickerLabel;
     private Canvas legacyCanvas;
     private GameObject menuBackground;
     private readonly Vector2Int[] resolutionOptions =
@@ -139,6 +146,7 @@ public class RelayManager : MonoBehaviour
         {
             Debug.LogError($"Relay room creation failed: {e.Message}");
             ShowMainMenu("Room creation failed");
+            AudioManager.Play(Sfx.UiError);
         }
         finally
         {
@@ -323,6 +331,7 @@ public class RelayManager : MonoBehaviour
         if (string.IsNullOrEmpty(joinCode))
         {
             SetStatus("Enter a room code");
+            AudioManager.Play(Sfx.UiError);
             return;
         }
 
@@ -339,6 +348,7 @@ public class RelayManager : MonoBehaviour
             if (!success)
             {
                 SetStatus("Connection failed");
+                AudioManager.Play(Sfx.UiError);
                 return;
             }
 
@@ -351,6 +361,7 @@ public class RelayManager : MonoBehaviour
         {
             Debug.LogError($"Relay connection failed: {e.Message}");
             SetStatus("Invalid code or connection failed");
+            AudioManager.Play(Sfx.UiError);
         }
         finally
         {
@@ -620,6 +631,8 @@ public class RelayManager : MonoBehaviour
 
         ShowPanel(mainMenuPanel);
         SetStatus(message);
+        lastLobbyPlayers = 0;
+        AudioManager.EnterMenu();
     }
 
     private void ShowLobby(bool isHost, string message)
@@ -660,6 +673,11 @@ public class RelayManager : MonoBehaviour
         int connectedPlayers = GetConnectedPlayersCount();
 
         lobbyPlayersLabel.text = $"Players: {connectedPlayers}/{maxPlayers}";
+
+        // The host hears it when the friend joins, the friend when they get into the room.
+        if (!gameplayStarted && connectedPlayers >= RequiredPlayersToStart && connectedPlayers > lastLobbyPlayers)
+            AudioManager.Play(Sfx.PlayerJoined);
+        lastLobbyPlayers = connectedPlayers;
 
         if (startGameButton != null)
             startGameButton.interactable = connectedPlayers >= RequiredPlayersToStart;
@@ -734,8 +752,92 @@ public class RelayManager : MonoBehaviour
         TextMeshProUGUI subtitle = CreateText(mainMenuPanel.transform, "Gather one friend and escape the maze together", 28, FontStyles.Normal, TextAlignmentOptions.Center);
         subtitle.rectTransform.sizeDelta = new Vector2(860, 56);
 
+        BuildColorPicker(mainMenuPanel.transform);
+
         CreateButton(mainMenuPanel.transform, "Create Room", StartRelay);
         CreateButton(mainMenuPanel.transform, "Join Room", OpenJoinPanel, UiButtonStyle.Secondary);
+    }
+
+    private void BuildColorPicker(Transform parent)
+    {
+        colorPickerLabel = CreateText(parent, string.Empty, 26, FontStyles.Normal, TextAlignmentOptions.Center);
+        colorPickerLabel.rectTransform.sizeDelta = new Vector2(760, 40);
+
+        GameObject row = new GameObject("Color Picker", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+        row.transform.SetParent(parent, false);
+        ((RectTransform)row.transform).sizeDelta = new Vector2(820, 80);
+
+        HorizontalLayoutGroup layout = row.GetComponent<HorizontalLayoutGroup>();
+        layout.childAlignment = TextAnchor.MiddleCenter;
+        layout.spacing = 16;
+        layout.childControlWidth = false;
+        layout.childControlHeight = false;
+        layout.childForceExpandWidth = false;
+        layout.childForceExpandHeight = false;
+
+        for (int i = 0; i < PlayerColorChoice.Count; i++)
+            colorSwatches.Add(CreateColorSwatch(row.transform, i));
+
+        UpdateColorPicker();
+    }
+
+    private RectTransform CreateColorSwatch(Transform parent, int index)
+    {
+        GameObject swatchObject = new GameObject(PlayerColorChoice.GetName(index), typeof(RectTransform), typeof(Image), typeof(UnityEngine.UI.Button));
+        swatchObject.transform.SetParent(parent, false);
+
+        RectTransform rectTransform = swatchObject.GetComponent<RectTransform>();
+        rectTransform.sizeDelta = new Vector2(56, 56);
+
+        // The light round Layer Lab button tinted with the palette color.
+        Image image = swatchObject.GetComponent<Image>();
+        image.color = PlayerColorChoice.GetSwatchColor(index);
+        UiTheme theme = UiTheme.Current;
+        if (theme != null && theme.BadgeSprite != null)
+        {
+            image.sprite = theme.BadgeSprite;
+            image.preserveAspect = true;
+        }
+
+        UnityEngine.UI.Button button = swatchObject.GetComponent<UnityEngine.UI.Button>();
+        button.targetGraphic = image;
+        button.onClick.AddListener(() => SelectPlayerColor(index));
+        swatchObject.AddComponent<UiButtonSounds>();
+
+        if (index == PlayerColorChoice.AutoIndex)
+        {
+            TextMeshProUGUI autoLabel = CreateText(swatchObject.transform, "A", 26, FontStyles.Bold, TextAlignmentOptions.Center);
+            autoLabel.color = new Color(0.2f, 0.22f, 0.26f, 1f);
+            autoLabel.raycastTarget = false;
+            autoLabel.rectTransform.anchorMin = Vector2.zero;
+            autoLabel.rectTransform.anchorMax = Vector2.one;
+            autoLabel.rectTransform.offsetMin = Vector2.zero;
+            autoLabel.rectTransform.offsetMax = Vector2.zero;
+        }
+
+        return rectTransform;
+    }
+
+    private void SelectPlayerColor(int index)
+    {
+        PlayerColorChoice.SelectedIndex = index;
+        UpdateColorPicker();
+    }
+
+    private void UpdateColorPicker()
+    {
+        int selected = PlayerColorChoice.SelectedIndex;
+
+        // The selected swatch is drawn bigger; scale does not affect the layout, so the row does not jump.
+        for (int i = 0; i < colorSwatches.Count; i++)
+            colorSwatches[i].localScale = i == selected ? Vector3.one * 1.3f : Vector3.one;
+
+        if (colorPickerLabel != null)
+        {
+            colorPickerLabel.text = selected == PlayerColorChoice.AutoIndex
+                ? "Character color: Auto (chosen by the game)"
+                : $"Character color: {PlayerColorChoice.GetName(selected)}";
+        }
     }
 
     private void BuildJoinPanel()
@@ -772,6 +874,7 @@ public class RelayManager : MonoBehaviour
         title.rectTransform.sizeDelta = new Vector2(760, 80);
 
         CreateButton(pausePanel.transform, "Resume", ResumeGame);
+        CreateVolumeButtons(pausePanel.transform, new Vector2(420, 80), 28);
         CreateButton(pausePanel.transform, "Exit Game", ExitGame, UiButtonStyle.Danger);
 
         pausePanel.SetActive(false);
@@ -787,7 +890,7 @@ public class RelayManager : MonoBehaviour
         rectTransform.anchorMax = new Vector2(1f, 1f);
         rectTransform.pivot = new Vector2(1f, 1f);
         rectTransform.anchoredPosition = new Vector2(-36f, -28f);
-        rectTransform.sizeDelta = new Vector2(320, 170);
+        rectTransform.sizeDelta = new Vector2(320, 300);
 
         VerticalLayoutGroup layout = displaySettingsPanel.GetComponent<VerticalLayoutGroup>();
         layout.childAlignment = TextAnchor.UpperRight;
@@ -816,6 +919,8 @@ public class RelayManager : MonoBehaviour
             UiButtonStyle.Settings);
         resolutionButtonLabel = resolutionButton.GetComponentInChildren<TextMeshProUGUI>();
 
+        CreateVolumeButtons(displaySettingsPanel.transform, new Vector2(300, 56), 20);
+
         currentResolutionIndex = GetClosestResolutionIndex(Screen.width, Screen.height);
 
         // Restore the display settings the player chose in a previous session.
@@ -828,6 +933,53 @@ public class RelayManager : MonoBehaviour
         }
 
         UpdateDisplaySettingsLabels();
+    }
+
+    private void CreateVolumeButtons(Transform parent, Vector2 size, float fontSize)
+    {
+        UnityEngine.UI.Button musicButton = CreateButton(parent, string.Empty, CycleMusicVolume, size, fontSize, UiButtonStyle.Settings);
+        musicVolumeLabels.Add(musicButton.GetComponentInChildren<TextMeshProUGUI>());
+
+        UnityEngine.UI.Button sfxButton = CreateButton(parent, string.Empty, CycleSfxVolume, size, fontSize, UiButtonStyle.Settings);
+        sfxVolumeLabels.Add(sfxButton.GetComponentInChildren<TextMeshProUGUI>());
+
+        UpdateVolumeLabels();
+    }
+
+    private void CycleMusicVolume()
+    {
+        AudioManager.MusicVolume = GetNextVolumeStep(AudioManager.MusicVolume);
+        UpdateVolumeLabels();
+    }
+
+    private void CycleSfxVolume()
+    {
+        AudioManager.SfxVolume = GetNextVolumeStep(AudioManager.SfxVolume);
+        UpdateVolumeLabels();
+    }
+
+    private static float GetNextVolumeStep(float volume)
+    {
+        foreach (float step in VolumeSteps)
+        {
+            if (step > volume + 0.01f)
+                return step;
+        }
+
+        return VolumeSteps[0];
+    }
+
+    // Both the Display panel and the pause menu have volume buttons; keep their labels in sync.
+    private void UpdateVolumeLabels()
+    {
+        string music = $"Music: {Mathf.RoundToInt(AudioManager.MusicVolume * 100f)}%";
+        string sounds = $"Sounds: {Mathf.RoundToInt(AudioManager.SfxVolume * 100f)}%";
+
+        foreach (TextMeshProUGUI label in musicVolumeLabels)
+            label.text = music;
+
+        foreach (TextMeshProUGUI label in sfxVolumeLabels)
+            label.text = sounds;
     }
 
     private void ToggleFullscreen()
@@ -970,6 +1122,7 @@ public class RelayManager : MonoBehaviour
             timerLabel.gameObject.SetActive(true);
 
         SetStatus(string.Empty);
+        AudioManager.EnterGameplay();
     }
 
     private int GetConnectedPlayersCount()
@@ -1049,6 +1202,7 @@ public class RelayManager : MonoBehaviour
         UnityEngine.UI.Button button = buttonObject.GetComponent<UnityEngine.UI.Button>();
         button.targetGraphic = image;
         button.onClick.AddListener(action);
+        buttonObject.AddComponent<UiButtonSounds>();
 
         TextMeshProUGUI text = CreateText(buttonObject.transform, label, fontSize, FontStyles.Bold, TextAlignmentOptions.Center);
         text.rectTransform.anchorMin = Vector2.zero;

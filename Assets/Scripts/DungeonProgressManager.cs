@@ -80,6 +80,7 @@ public class DungeonProgressManager : NetworkBehaviour
         lastCompletionTime.OnValueChanged += OnLastCompletionTimeChanged;
         
         UpdateUI();
+        AudioManager.SetLevel(currentLevel.Value);
         OnLevelChanged?.Invoke(currentLevel.Value);
     }
     
@@ -269,10 +270,11 @@ public class DungeonProgressManager : NetworkBehaviour
             Instantiate(victoryEffectPrefab, position, Quaternion.identity);
         }
         
+        // A clip assigned in the scene overrides the one from the audio library.
         if (victorySound != null)
-        {
-            AudioSource.PlayClipAtPoint(victorySound, position);
-        }
+            AudioManager.PlayClipAt(victorySound, position, 1f);
+        else
+            AudioManager.Play(Sfx.LevelComplete);
         
         OnLevelCompleted?.Invoke();
     }
@@ -309,6 +311,7 @@ public class DungeonProgressManager : NetworkBehaviour
     void OnCurrentLevelChanged(int oldValue, int newValue)
     {
         UpdateUI();
+        AudioManager.SetLevel(newValue);
         OnLevelChanged?.Invoke(newValue);
     }
 

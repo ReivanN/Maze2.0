@@ -26,6 +26,26 @@ public class NetworkPlayerColor : NetworkBehaviour
 
         ApplyColor(syncedColor.Value);
         syncedColor.OnValueChanged += OnColorChanged;
+
+        // The color picked in the main menu replaces the default one. Auto keeps the default.
+        if (IsOwner && PlayerColorChoice.SelectedIndex != PlayerColorChoice.AutoIndex)
+            SubmitColorRpc(PlayerColorChoice.SelectedIndex);
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        syncedColor.OnValueChanged -= OnColorChanged;
+    }
+
+    // Sends the palette index, not the color itself, so the server only accepts colors from the palette.
+    [Rpc(SendTo.Server)]
+    private void SubmitColorRpc(int paletteIndex, RpcParams rpcParams = default)
+    {
+        if (rpcParams.Receive.SenderClientId != OwnerClientId)
+            return;
+
+        if (PlayerColorChoice.TryGetColor(paletteIndex, out Color color))
+            syncedColor.Value = color;
     }
 
     private void OnColorChanged(Color oldColor, Color newColor)

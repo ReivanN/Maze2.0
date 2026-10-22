@@ -94,6 +94,9 @@ public class LaserSwitch : NetworkBehaviour
 
     private void OnPressedChanged(bool oldValue, bool newValue)
     {
+        if (newValue && !oldValue)
+            AudioManager.Play(Sfx.LaserSwitch);
+
         ApplyPressedState(newValue, false);
     }
 

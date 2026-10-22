@@ -52,7 +52,7 @@ public static class LevelMutatorInfo
         {
             case LevelMutatorType.LowGravity: return "You float: jumps are longer and falls are slow";
             case LevelMutatorType.HeavyWorld: return "Strong gravity: short jumps and fast falls";
-            case LevelMutatorType.Ice: return "Slippery floor: you speed up and stop slowly";
+            case LevelMutatorType.Ice: return "Slippery floor: you keep sliding, turning around first has to stop the slide";
             case LevelMutatorType.MirrorControls: return "Movement is inverted for both players";
             case LevelMutatorType.Wind: return "A steady wind pushes you and changes direction";
             case LevelMutatorType.FogAndDarkness: return "Almost no light: stay close to each other's lantern";

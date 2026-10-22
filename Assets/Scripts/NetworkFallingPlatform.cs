@@ -193,7 +193,12 @@ public class NetworkFallingPlatform : NetworkBehaviour
         // Запускаем визуальную тряску
         if (current == PlatformState.Shaking)
         {
+            AudioManager.PlayAt(Sfx.PlatformShake, transform.position);
             StartCoroutine(ShakeVisual());
+        }
+        else if (current == PlatformState.Falling)
+        {
+            AudioManager.PlayAt(Sfx.PlatformFall, transform.position);
         }
     }
 

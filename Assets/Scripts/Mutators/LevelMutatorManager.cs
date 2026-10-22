@@ -23,8 +23,10 @@ public class LevelMutatorSettings
     [Range(0.3f, 1.5f)] public float heavyJumpHeightMultiplier = 0.8f;
 
     [Header("Ice")]
-    [Tooltip("ThirdPersonController.SpeedChangeRate while on ice. Normal value is 10, lower = more slippery.")]
-    [Range(0.2f, 10f)] public float iceSpeedChangeRate = 1.2f;
+    [Tooltip("How fast input changes the velocity on ice, m/s per second. Lower = harder to turn and brake.")]
+    [Range(0.5f, 10f)] public float iceAcceleration = 3f;
+    [Tooltip("How fast the slide stops without input, m/s per second. Lower = longer slides.")]
+    [Range(0.1f, 5f)] public float iceFriction = 1.2f;
 
     [Header("Mirror Controls")]
     public bool mirrorHorizontal = true;
@@ -114,6 +116,7 @@ public class LevelMutatorManager : NetworkBehaviour
     private int lastSeenSerial = -1;
     private bool introPending;
     private float introStartTime = -1000f;
+    private bool lastWindWarning;
 
     // fog / darkness
     private struct SunState
@@ -298,6 +301,7 @@ public class LevelMutatorManager : NetworkBehaviour
             ExitDarkness();
 
         appliedMutator = type;
+        AudioManager.SetDarknessMusic(type == LevelMutatorType.FogAndDarkness);
 
         if (type == LevelMutatorType.FogAndDarkness)
             EnterDarkness();
@@ -465,6 +469,7 @@ public class LevelMutatorManager : NetworkBehaviour
         introTitle.text = LevelMutatorInfo.GetName(type).ToUpperInvariant();
         introDescription.text = LevelMutatorInfo.GetDescription(type);
         introStartTime = Time.unscaledTime;
+        AudioManager.Play(Sfx.MutatorIntro);
     }
 
     private void UpdateHud()
@@ -539,8 +544,13 @@ public class LevelMutatorManager : NetworkBehaviour
     {
         bool windActive = appliedMutator == LevelMutatorType.Wind;
 
+        bool warning = windActive && windWarning.Value;
+        if (warning && !lastWindWarning)
+            AudioManager.Play(Sfx.WindWarning);
+        lastWindWarning = warning;
+
         windWidget.gameObject.SetActive(windActive);
-        windWarningLabel.gameObject.SetActive(windActive && windWarning.Value);
+        windWarningLabel.gameObject.SetActive(warning);
 
         if (windActive)
         {

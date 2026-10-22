@@ -69,6 +69,9 @@ public class Door : NetworkBehaviour
 
     void OnDoorStateChanged(bool oldValue, bool newValue)
     {
+        if (newValue && !oldValue)
+            AudioManager.Play(Sfx.DoorOpen); // both players hear it: one pressed the button, the other gets the way open
+
         if (newValue)
             Open();
     }

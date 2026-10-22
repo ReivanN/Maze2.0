@@ -7,8 +7,8 @@ using UnityEngine;
 /// character; running this on every client is what makes the mutator affect both players.
 ///
 /// Added at runtime by LevelMutatorManager, so the player prefab does not need to be edited.
-/// Starter Assets files are not modified: gravity, jump height and acceleration are public fields of
-/// ThirdPersonController, mirrored input and wind are handled by running before it.
+/// Gravity, jump height and ice momentum are public fields of ThirdPersonController,
+/// mirrored input and wind are handled by running before it.
 /// </summary>
 [DefaultExecutionOrder(-100)] // run before ThirdPersonController.Update
 public class PlayerMutatorApplier : MonoBehaviour
@@ -21,6 +21,7 @@ public class PlayerMutatorApplier : MonoBehaviour
     private float baseGravity;
     private float baseJumpHeight;
     private float baseSpeedChangeRate;
+    private bool baseUseMomentum;
     private bool baseCaptured;
 
     private LevelMutatorType current = LevelMutatorType.None;
@@ -41,6 +42,7 @@ public class PlayerMutatorApplier : MonoBehaviour
             baseGravity = controller.Gravity;
             baseJumpHeight = controller.JumpHeight;
             baseSpeedChangeRate = controller.SpeedChangeRate;
+            baseUseMomentum = controller.UseMomentum;
             baseCaptured = true;
 
             // Walk animation must not play while the character is only sliding (ice) or being pushed (wind).
@@ -78,8 +80,10 @@ public class PlayerMutatorApplier : MonoBehaviour
                 break;
 
             case LevelMutatorType.Ice:
-                // Lower value = slower acceleration and braking.
-                controller.SpeedChangeRate = s.iceSpeedChangeRate;
+                // The velocity is kept between frames; input only slowly changes it (see ThirdPersonController.UpdateMomentum).
+                controller.UseMomentum = true;
+                controller.MomentumAcceleration = s.iceAcceleration;
+                controller.MomentumFriction = s.iceFriction;
                 break;
         }
     }
@@ -148,6 +152,7 @@ public class PlayerMutatorApplier : MonoBehaviour
         controller.Gravity = baseGravity;
         controller.JumpHeight = baseJumpHeight;
         controller.SpeedChangeRate = baseSpeedChangeRate;
+        controller.UseMomentum = baseUseMomentum;
     }
 
     private void OnDestroy()
