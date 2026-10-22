@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 860aae4b9de04ba9b226b2103c50f9ae, type: 3}
+  m_Name: UiTheme
+  m_EditorClassIdentifier: 
+  primaryButton: {fileID: 4864844535518039958, guid: c7d2bd0912f8f4693ac1f6945df96580, type: 3}
+  secondaryButton: {fileID: 4572650061679322212, guid: 4149680376656478184fb05f7b01f4ca, type: 3}
+  neutralButton: {fileID: 7779305663142250507, guid: 0600c0aae249646cdb6eb14683019232, type: 3}
+  dangerButton: {fileID: 6520294457881747105, guid: 3eadc6b86586d45df970e029a9aa85c3, type: 3}
+  settingsButton: {fileID: 4569563288584657978, guid: 91ec6588d983e4889a881794a53483d0, type: 3}
+  font: {fileID: 11400000, guid: ff28a8643b2654d8ba5b96e81fa13774, type: 2}
+  inputSprite: {fileID: 21300000, guid: 0bf48cbb32e1f4d2bbc1a43e1b8de247, type: 3}
+  tooltipSprite: {fileID: 21300000, guid: 6dbd20858c4ee4058aeef4ec2604c85a, type: 3}
+  badgeSprite: {fileID: 21300000, guid: 585d2432f0fbd46a2bc67d9f69cb0e7a, type: 3}

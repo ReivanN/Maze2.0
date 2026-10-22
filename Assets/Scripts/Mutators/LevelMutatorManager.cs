@@ -589,15 +589,25 @@ public class LevelMutatorManager : NetworkBehaviour
         badgeImage = badgeObject.GetComponent<Image>();
         badgeImage.raycastTarget = false;
 
+        UiTheme theme = UiTheme.Current;
+        bool roundBadge = theme != null && theme.BadgeSprite != null;
+        if (roundBadge)
+        {
+            // Light round Layer Lab button, tinted with the mutator color in UpdateHud.
+            badgeImage.sprite = theme.BadgeSprite;
+            badgeImage.preserveAspect = true;
+        }
+
         badgeLabel = CreateText(badgeRect, "Badge Label", 64f, FontStyles.Bold, TextAlignmentOptions.Center,
             new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
         badgeLabel.color = Color.white;
         RectTransform labelRect = badgeLabel.rectTransform;
-        labelRect.anchorMin = Vector2.zero;
-        labelRect.anchorMax = Vector2.one;
+        // The round sprite needs a relative inset so the code stays inside the circle at every badge size.
+        labelRect.anchorMin = roundBadge ? new Vector2(0.18f, 0.2f) : Vector2.zero;
+        labelRect.anchorMax = roundBadge ? new Vector2(0.82f, 0.84f) : Vector2.one;
         labelRect.pivot = new Vector2(0.5f, 0.5f);
-        labelRect.offsetMin = new Vector2(4f, 4f);
-        labelRect.offsetMax = new Vector2(-4f, -4f);
+        labelRect.offsetMin = roundBadge ? Vector2.zero : new Vector2(4f, 4f);
+        labelRect.offsetMax = roundBadge ? Vector2.zero : new Vector2(-4f, -4f);
         // Auto size keeps the short code inside the badge while the badge shrinks from large to small.
         badgeLabel.enableAutoSizing = true;
         badgeLabel.fontSizeMin = 8f;
@@ -625,6 +635,11 @@ public class LevelMutatorManager : NetworkBehaviour
         Image tooltipImage = tooltipObject.GetComponent<Image>();
         tooltipImage.color = new Color(0f, 0f, 0f, 0.85f);
         tooltipImage.raycastTarget = false;
+        if (theme != null && theme.TooltipSprite != null)
+        {
+            tooltipImage.color = new Color(1f, 1f, 1f, 0.92f);
+            UiTheme.ApplySlicedSprite(tooltipImage, theme.TooltipSprite, tooltipPanel.sizeDelta.y);
+        }
 
         tooltipText = CreateText(tooltipPanel, "Tooltip Text", 26f, FontStyles.Normal, TextAlignmentOptions.Center,
             new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
@@ -694,6 +709,7 @@ public class LevelMutatorManager : NetworkBehaviour
         textObject.transform.SetParent(parent, false);
 
         TextMeshProUGUI text = textObject.GetComponent<TextMeshProUGUI>();
+        UiTheme.ApplyFont(text);
         text.fontSize = fontSize;
         text.fontStyle = style;
         text.alignment = alignment;

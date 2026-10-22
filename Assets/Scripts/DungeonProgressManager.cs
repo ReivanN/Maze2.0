@@ -370,6 +370,7 @@ public class DungeonProgressManager : NetworkBehaviour
         levelObject.transform.SetParent(canvas.transform, false);
 
         levelText = levelObject.GetComponent<TextMeshProUGUI>();
+        UiTheme.ApplyFont(levelText);
         levelText.text = $"Level {currentLevel.Value}";
         levelText.fontSize = 30;
         levelText.fontStyle = FontStyles.Bold;

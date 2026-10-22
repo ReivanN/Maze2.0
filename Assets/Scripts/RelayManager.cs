@@ -735,7 +735,7 @@ public class RelayManager : MonoBehaviour
         subtitle.rectTransform.sizeDelta = new Vector2(860, 56);
 
         CreateButton(mainMenuPanel.transform, "Create Room", StartRelay);
-        CreateButton(mainMenuPanel.transform, "Join Room", OpenJoinPanel);
+        CreateButton(mainMenuPanel.transform, "Join Room", OpenJoinPanel, UiButtonStyle.Secondary);
     }
 
     private void BuildJoinPanel()
@@ -745,7 +745,7 @@ public class RelayManager : MonoBehaviour
 
         joinCodeInput = CreateInput(joinPanel.transform, "ROOM CODE");
         CreateButton(joinPanel.transform, "Connect", JoinRelay);
-        CreateButton(joinPanel.transform, "Back", () => ShowMainMenu("Ready to connect"));
+        CreateButton(joinPanel.transform, "Back", () => ShowMainMenu("Ready to connect"), UiButtonStyle.Neutral);
     }
 
     private void BuildLobbyPanel()
@@ -763,7 +763,7 @@ public class RelayManager : MonoBehaviour
         lobbyPlayersLabel.rectTransform.sizeDelta = new Vector2(760, 48);
 
         startGameButton = CreateButton(lobbyPanel.transform, "Start Game", StartGameAsHost);
-        CreateButton(lobbyPanel.transform, "Leave", LeaveRoom);
+        CreateButton(lobbyPanel.transform, "Leave", LeaveRoom, UiButtonStyle.Danger);
     }
 
     private void BuildPausePanel()
@@ -772,7 +772,7 @@ public class RelayManager : MonoBehaviour
         title.rectTransform.sizeDelta = new Vector2(760, 80);
 
         CreateButton(pausePanel.transform, "Resume", ResumeGame);
-        CreateButton(pausePanel.transform, "Exit Game", ExitGame);
+        CreateButton(pausePanel.transform, "Exit Game", ExitGame, UiButtonStyle.Danger);
 
         pausePanel.SetActive(false);
     }
@@ -793,6 +793,7 @@ public class RelayManager : MonoBehaviour
         layout.childAlignment = TextAnchor.UpperRight;
         layout.spacing = 10;
         layout.padding = new RectOffset(0, 0, 0, 0);
+        UseChildSizes(layout);
 
         TextMeshProUGUI title = CreateText(displaySettingsPanel.transform, "Display", 22, FontStyles.Bold, TextAlignmentOptions.Right);
         title.rectTransform.sizeDelta = new Vector2(300, 34);
@@ -801,16 +802,18 @@ public class RelayManager : MonoBehaviour
             displaySettingsPanel.transform,
             string.Empty,
             ToggleFullscreen,
-            new Vector2(300, 52),
-            20);
+            new Vector2(300, 56),
+            20,
+            UiButtonStyle.Settings);
         fullscreenButtonLabel = fullscreenButton.GetComponentInChildren<TextMeshProUGUI>();
 
         UnityEngine.UI.Button resolutionButton = CreateButton(
             displaySettingsPanel.transform,
             string.Empty,
             CycleResolution,
-            new Vector2(300, 52),
-            20);
+            new Vector2(300, 56),
+            20,
+            UiButtonStyle.Settings);
         resolutionButtonLabel = resolutionButton.GetComponentInChildren<TextMeshProUGUI>();
 
         currentResolutionIndex = GetClosestResolutionIndex(Screen.width, Screen.height);
@@ -922,8 +925,18 @@ public class RelayManager : MonoBehaviour
         layout.childAlignment = TextAnchor.MiddleCenter;
         layout.spacing = 18;
         layout.padding = new RectOffset(24, 24, 24, 24);
+        UseChildSizes(layout);
 
         return panel;
+    }
+
+    // Children keep the sizes set in code instead of being stretched by the layout group.
+    private static void UseChildSizes(VerticalLayoutGroup layout)
+    {
+        layout.childControlWidth = false;
+        layout.childControlHeight = false;
+        layout.childForceExpandWidth = false;
+        layout.childForceExpandHeight = false;
     }
 
     private void AddBackground(RectTransform parent)
@@ -988,6 +1001,7 @@ public class RelayManager : MonoBehaviour
         textObject.transform.SetParent(parent, false);
 
         TextMeshProUGUI label = textObject.GetComponent<TextMeshProUGUI>();
+        UiTheme.ApplyFont(label);
         label.text = text;
         label.fontSize = fontSize;
         label.fontStyle = style;
@@ -998,9 +1012,13 @@ public class RelayManager : MonoBehaviour
         return label;
     }
 
-    private UnityEngine.UI.Button CreateButton(Transform parent, string label, UnityEngine.Events.UnityAction action)
+    private UnityEngine.UI.Button CreateButton(
+        Transform parent,
+        string label,
+        UnityEngine.Events.UnityAction action,
+        UiButtonStyle style = UiButtonStyle.Primary)
     {
-        return CreateButton(parent, label, action, new Vector2(420, 70), 26);
+        return CreateButton(parent, label, action, new Vector2(420, 80), 28, style);
     }
 
     private UnityEngine.UI.Button CreateButton(
@@ -1008,8 +1026,17 @@ public class RelayManager : MonoBehaviour
         string label,
         UnityEngine.Events.UnityAction action,
         Vector2 size,
-        float fontSize)
+        float fontSize,
+        UiButtonStyle style)
     {
+        UiTheme theme = UiTheme.Current;
+        UnityEngine.UI.Button themedButton = theme != null ? theme.CreateButton(parent, style, label, size, fontSize) : null;
+        if (themedButton != null)
+        {
+            themedButton.onClick.AddListener(action);
+            return themedButton;
+        }
+
         GameObject buttonObject = new GameObject(label, typeof(RectTransform), typeof(Image), typeof(UnityEngine.UI.Button));
         buttonObject.transform.SetParent(parent, false);
 
@@ -1038,19 +1065,29 @@ public class RelayManager : MonoBehaviour
         inputObject.transform.SetParent(parent, false);
 
         RectTransform rectTransform = inputObject.GetComponent<RectTransform>();
-        rectTransform.sizeDelta = new Vector2(420, 70);
+        rectTransform.sizeDelta = new Vector2(420, 80);
+
+        UiTheme theme = UiTheme.Current;
+        bool themed = theme != null && theme.InputSprite != null;
+        Color textColor = themed ? new Color(0.13f, 0.15f, 0.18f, 1f) : Color.white;
 
         Image image = inputObject.GetComponent<Image>();
         image.color = new Color(0.09f, 0.11f, 0.12f, 1f);
+        if (themed)
+        {
+            image.color = Color.white;
+            UiTheme.ApplySlicedSprite(image, theme.InputSprite, rectTransform.sizeDelta.y);
+        }
 
         TextMeshProUGUI text = CreateText(inputObject.transform, string.Empty, 28, FontStyles.Bold, TextAlignmentOptions.Center);
+        text.color = textColor;
         text.rectTransform.anchorMin = Vector2.zero;
         text.rectTransform.anchorMax = Vector2.one;
         text.rectTransform.offsetMin = new Vector2(18, 0);
         text.rectTransform.offsetMax = new Vector2(-18, 0);
 
         TextMeshProUGUI placeholderText = CreateText(inputObject.transform, placeholder, 24, FontStyles.Normal, TextAlignmentOptions.Center);
-        placeholderText.color = new Color(1f, 1f, 1f, 0.45f);
+        placeholderText.color = new Color(textColor.r, textColor.g, textColor.b, 0.45f);
         placeholderText.rectTransform.anchorMin = Vector2.zero;
         placeholderText.rectTransform.anchorMax = Vector2.one;
         placeholderText.rectTransform.offsetMin = new Vector2(18, 0);
