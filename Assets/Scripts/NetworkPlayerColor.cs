@@ -7,6 +7,9 @@ public class NetworkPlayerColor : NetworkBehaviour
     [SerializeField] private Color playerOneColor = Color.white;
     [SerializeField] private Color playerTwoColor = Color.red;
 
+    /// <summary>Raised whenever the player's color is applied, for visuals that are not <see cref="targetRenderer"/>.</summary>
+    public event System.Action<Color> ColorApplied;
+
     private NetworkVariable<Color> syncedColor =
         new NetworkVariable<Color>(
             Color.white,
@@ -64,5 +67,7 @@ public class NetworkPlayerColor : NetworkBehaviour
                 mats[i].color = color;
             }
         }
+
+        ColorApplied?.Invoke(color);
     }
 }

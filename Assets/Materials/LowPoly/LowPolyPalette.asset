@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 566d2911fb914cd3a6a2c75b595c7d33, type: 3}
+  m_Name: LowPolyPalette
+  m_EditorClassIdentifier: Assembly-CSharp::LowPolyPalette
+  tileLight: {fileID: 2100000, guid: 0df37423cd7c4c3ca60767a05cafc871, type: 2}
+  tileDark: {fileID: 2100000, guid: a9bd326b4c044fc3beca3b97cc034d3a, type: 2}
+  tileSide: {fileID: 2100000, guid: 3f5b421836a243a0bca89cdd10e64c62, type: 2}
+  hedgeSide: {fileID: 2100000, guid: 8308df29cd80427391a4e061162d6c51, type: 2}
+  hedgeTop: {fileID: 2100000, guid: b15a6fcfabd4469f99f9f95aff2c1964, type: 2}
+  treeDark: {fileID: 2100000, guid: ac814d45f8c14c54ab52333094ae2364, type: 2}
+  treeLight: {fileID: 2100000, guid: 1eb8f927c52b4824aa75df7f2137f84b, type: 2}
+  trunk: {fileID: 2100000, guid: 18ef3a04c96748c790a3ea7783170418, type: 2}
+  grass: {fileID: 2100000, guid: b502f36e39c449c48aa44fa24cd6af88, type: 2}
+  rock: {fileID: 2100000, guid: fbb11589f418461f8cae43f36317b2e9, type: 2}

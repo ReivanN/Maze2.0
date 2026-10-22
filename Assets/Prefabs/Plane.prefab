@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 1391347865842420457}
   - component: {fileID: 6719056802990279854}
   - component: {fileID: 3981340503548702768}
+  - component: {fileID: 6879950349944944293}
   m_Layer: 0
   m_Name: Plane
   m_TagString: Untagged
@@ -138,3 +139,21 @@ MonoBehaviour:
   AutoObjectParentSync: 1
   SyncOwnerTransformWhenParented: 1
   AllowOwnerToParent: 0
+--- !u!114 &6879950349944944293
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3315031923594135049}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 69607a18bed5482980d9b03a5fc84863, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::LowPolyTile
+  palette: {fileID: 11400000, guid: 8e271e36703e48cbb3bedad470b93704, type: 2}
+  cellSize: 2
+  gap: 0.14
+  thickness: 0.4
+  grassChance: 0.45
+  rockChance: 0.08
