@@ -104,9 +104,6 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 4416926081852918481, guid: 64dce48905ffd9b4293e595fa6941544, type: 3}
       insertIndex: -1
       addedObject: {fileID: 5300832829732927763}
-    - targetCorrespondingSourceObject: {fileID: 4416926081852918481, guid: 64dce48905ffd9b4293e595fa6941544, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 6087065893371229867}
   m_SourcePrefab: {fileID: 100100000, guid: 64dce48905ffd9b4293e595fa6941544, type: 3}
 --- !u!114 &444161165284104955 stripped
 MonoBehaviour:
@@ -306,26 +303,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a612415ed824648c194644ade195232f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: '::'
---- !u!114 &6087065893371229867
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 4217521086568236679}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 63d51a03a7ed47138b0530786c8b9a9e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::LowPolyCharacter
-  cloakMaterial: {fileID: 2100000, guid: 8a297bdd032747d5bb66fd72de092f5c, type: 2}
-  leatherMaterial: {fileID: 2100000, guid: 7969ed7c93d543fdb2bd4a2bf57687dd, type: 2}
-  darkLeatherMaterial: {fileID: 2100000, guid: 367a776bd49e440fb5401503d1c0c92a, type: 2}
-  pantsMaterial: {fileID: 2100000, guid: 7e6df3a807244455baceb3b33e9d0de4, type: 2}
-  faceMaterial: {fileID: 2100000, guid: 60d8d73c47304d728f9ea018e01396fe, type: 2}
-  eyeMaterial: {fileID: 2100000, guid: 59401ea130e3478f9f238c6b947f9e3c, type: 2}
-  steelMaterial: {fileID: 2100000, guid: 9e21e0ff4ed74be9b6bfa39f92afc0c7, type: 2}
-  cloakColorBlend: 0.35
 --- !u!114 &4217521086568236683 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 4416926081852918493, guid: 64dce48905ffd9b4293e595fa6941544, type: 3}

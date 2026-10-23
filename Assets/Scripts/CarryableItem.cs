@@ -69,7 +69,7 @@ public abstract class CarryableItem : NetworkBehaviour
     /// <summary>Name in the on-screen hints ("[E] Pick up cube").</summary>
     public abstract string DisplayName { get; }
 
-    /// <summary>Items with an extra action while carried (F), like eating a heart.</summary>
+    /// <summary>Items with an extra action while carried (F), for example eating something.</summary>
     public virtual bool HasUseAction => false;
 
     /// <summary>An item that must not be picked up or moved any more (the cube locked on the plate).</summary>

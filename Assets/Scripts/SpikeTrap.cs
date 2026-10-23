@@ -128,8 +128,11 @@ public class SpikeTrap : NetworkBehaviour
         if (manager == null)
             return;
 
-        Vector3 center = transform.position + Vector3.up * (damageAreaSize.y * 0.5f);
-        Collider[] hits = Physics.OverlapBox(center, damageAreaSize * 0.5f, transform.rotation, ~0, QueryTriggerInteraction.Ignore);
+        // The area grows with the trap's scale on the floor (a wide corridor cell), not in height.
+        Vector3 scale = transform.lossyScale;
+        Vector3 areaSize = new Vector3(damageAreaSize.x * scale.x, damageAreaSize.y, damageAreaSize.z * scale.z);
+        Vector3 center = transform.position + Vector3.up * (areaSize.y * 0.5f);
+        Collider[] hits = Physics.OverlapBox(center, areaSize * 0.5f, transform.rotation, ~0, QueryTriggerInteraction.Ignore);
 
         foreach (Collider hit in hits)
         {
@@ -179,9 +182,11 @@ public class SpikeTrap : NetworkBehaviour
         spikes = FindChild(visual.transform, SpikesName);
 
         // Fit the trap frame (not the hidden plane) into a maze cell whatever scale the model was imported with.
+        // visualSize is in the trap's own units, so the generator can stretch the trap to a wider cell by its scale.
         Renderer fitRenderer = body != null ? body.GetComponent<Renderer>() : null;
         Bounds fitBounds = fitRenderer != null ? fitRenderer.bounds : GetBounds(visual);
-        float size = Mathf.Max(fitBounds.size.x, fitBounds.size.z);
+        Vector3 rootScale = transform.lossyScale;
+        float size = Mathf.Max(fitBounds.size.x / Mathf.Max(0.001f, rootScale.x), fitBounds.size.z / Mathf.Max(0.001f, rootScale.z));
         if (size > 0.01f)
             visual.transform.localScale *= visualSize / size;
 

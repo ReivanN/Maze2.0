@@ -6,11 +6,13 @@ A cooperative online 3D maze game for **two players**, made in Unity. Every leve
 
 ## Features
 
-- Procedural cave / maze generator; the levels grow bigger as you progress.
+- Procedural cave / maze generator; the levels grow bigger as you progress (25×23 cells on level 1, +4 per level, up to 49×47).
+- The maze is not flat: corridors run on three heights joined by ramps, and some walls are removed so there is more than one way around. Corridors are 4 m wide (walls 2 m), wide enough for a player and a robot side by side.
 - Online co-op for 2 players: host creates a room and shares a join code (Unity Relay, encrypted with DTLS).
 - Colour-coded buttons and doors that have to be solved together.
 - Falling platforms, moving platforms and laser traps with switches.
-- Level mutators, a new random one on every level: **Low Gravity, Heavy World, Ice, Mirror Controls, Wind, Fog & Darkness**.
+- A patrolling robot in each half of the maze: it chases a player it sees and catches them (instant game over). A knife lies somewhere in each half; hitting a robot with it knocks the robot out for 5 seconds.
+- Level mutators, a new random one on every level: **Low Gravity, Heavy World, Ice, Mirror Controls, Wind, Fog & Darkness**. On Ice the floor is covered with a visible layer of ice.
 - Level timer, pause menu, display settings (fullscreen / resolution) that are remembered between sessions.
 
 ## How to play
@@ -25,6 +27,8 @@ A cooperative online 3D maze game for **two players**, made in Unity. Every leve
 | W A S D | Move |
 | Space | Jump |
 | Left Shift | Sprint |
+| Left mouse button | Swing the knife (when you have one and carry no item) |
+| F | Use a stored heal (walk over a heart to put it into the inventory, up to 3) |
 | Esc | Pause menu |
 
 The game needs an internet connection (Unity Relay is an online service). There is no single-player mode: the level cannot be finished by one player.
@@ -44,6 +48,10 @@ The game needs an internet connection (Unity Relay is an online service). There 
 ### One-time setup after pulling the mutators
 
 Run **Maze > Setup > Apply All (Mutators + Release Settings)** once. It adds `LevelMutatorManager` to `LevelScene`, sets the application identifier and the app icon.
+
+### Robot enemy and knife
+
+`Resources/RobotEnemy` and `Resources/KnifePickup` are built by **Maze > Setup > Create Robot Enemy + Knife** (`Assets/Editor/RobotEnemySetup.cs`). It runs by itself once after the scripts compile; run it again to rebuild the prefabs. It sets the Sci-Fi ToiletMech clips to loop, moves its materials to URP Lit, creates `Assets/Prefabs/Enemies/RobotEnemy.controller` and registers both prefabs as network prefabs.
 
 ## Project structure
 

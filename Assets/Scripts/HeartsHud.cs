@@ -1,12 +1,14 @@
+using StarterAssets;
 using TMPro;
 using Unity.Netcode;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 /// <summary>
-/// Hearts of both players in the top-left corner, under the level number. Reads the synced hearts from
-/// DungeonProgressManager; created on every client by DungeonProgressManager.
-/// The heart sprite is drawn in code, so the HUD does not depend on any art asset.
+/// Hearts of both players in the top-left corner, under the level number, and the heals the local player keeps in the
+/// inventory (picked-up hearts): F uses one. Reads the synced hearts from DungeonProgressManager; created on every
+/// client by DungeonProgressManager. The heart sprite is drawn in code, so the HUD does not depend on any art asset.
 /// </summary>
 public class HeartsHud : MonoBehaviour
 {
@@ -16,6 +18,8 @@ public class HeartsHud : MonoBehaviour
 
     private static readonly Color FullColor = new Color(0.92f, 0.16f, 0.22f, 1f);
     private static readonly Color EmptyColor = new Color(0.15f, 0.15f, 0.18f, 0.55f);
+    private static readonly Color HealColor = new Color(0.35f, 0.9f, 0.45f, 1f);
+    private const float HealHintTime = 1.6f;
 
     private static HeartsHud instance;
     private static Sprite heartSprite;
@@ -25,6 +29,11 @@ public class HeartsHud : MonoBehaviour
     private Image[] partnerHearts;
     private GameObject partnerRow;
     private RelayManager relayManager;
+    private Image healIcon;
+    private TextMeshProUGUI healLabel;
+    private string healHint;
+    private float healHintUntil;
+    private ThirdPersonController localController;
 
     private int shownLocalHearts = -1;
     private int pulseIndex = -1;
@@ -50,6 +59,7 @@ public class HeartsHud : MonoBehaviour
         RectTransform root = (RectTransform)transform;
         localHearts = CreateRow(root, "You", new Vector2(36f, -88f), LocalHeartSize, out _);
         partnerHearts = CreateRow(root, "Friend", new Vector2(36f, -146f), PartnerHeartSize, out partnerRow);
+        CreateHealRow(root, new Vector2(36f, -196f));
 
         canvas.enabled = false;
     }
@@ -97,6 +107,106 @@ public class HeartsHud : MonoBehaviour
             ApplyHearts(partnerHearts, manager.GetHearts(partnerId), manager.MaxHearts);
 
         UpdatePulse();
+        UpdateHeals(manager, localId, localCount);
+    }
+
+    // ================= STORED HEALS =================
+
+    private void UpdateHeals(DungeonProgressManager manager, ulong localId, int hearts)
+    {
+        int heals = manager.GetHeals(localId);
+
+        if (heals > 0 && IsInputAllowed() && Keyboard.current != null && Keyboard.current.fKey.wasPressedThisFrame)
+        {
+            if (hearts >= manager.MaxHearts)
+            {
+                healHint = "Hearts are full";
+                healHintUntil = Time.unscaledTime + HealHintTime;
+            }
+            else if (!manager.IsGameOver)
+            {
+                manager.RequestUseHeal();
+            }
+        }
+
+        healIcon.color = heals > 0 ? HealColor : EmptyColor;
+        healLabel.text = Time.unscaledTime < healHintUntil
+            ? $"x{heals}   {healHint}"
+            : heals > 0 ? $"x{heals}   [F] heal" : $"x{heals}";
+    }
+
+    // Same rules as the other gameplay keys: not in a menu, not during a camera cutscene, not while frozen.
+    private bool IsInputAllowed()
+    {
+        if (CameraCutscene.IsPlaying || relayManager == null || relayManager.IsMenuOpen)
+            return false;
+
+        if (localController == null)
+        {
+            NetworkManager networkManager = NetworkManager.Singleton;
+            NetworkObject player = networkManager != null && networkManager.LocalClient != null
+                ? networkManager.LocalClient.PlayerObject
+                : null;
+            if (player != null)
+                localController = player.GetComponentInChildren<ThirdPersonController>(true);
+        }
+
+        return localController != null && localController.enabled;
+    }
+
+    private void CreateHealRow(RectTransform root, Vector2 position)
+    {
+        GameObject rowObject = new GameObject("Stored Heals", typeof(RectTransform));
+        RectTransform row = (RectTransform)rowObject.transform;
+        row.SetParent(root, false);
+        row.anchorMin = new Vector2(0f, 1f);
+        row.anchorMax = new Vector2(0f, 1f);
+        row.pivot = new Vector2(0f, 1f);
+        row.anchoredPosition = position;
+        row.sizeDelta = new Vector2(520f, PartnerHeartSize);
+
+        GameObject captionObject = new GameObject("Caption", typeof(RectTransform), typeof(TextMeshProUGUI));
+        captionObject.transform.SetParent(row, false);
+        TextMeshProUGUI caption = captionObject.GetComponent<TextMeshProUGUI>();
+        UiTheme.ApplyFont(caption);
+        caption.text = "Heals";
+        caption.fontSize = PartnerHeartSize * 0.55f;
+        caption.alignment = TextAlignmentOptions.Left;
+        caption.color = Color.white;
+        caption.raycastTarget = false;
+        RectTransform captionRect = caption.rectTransform;
+        captionRect.anchorMin = new Vector2(0f, 0.5f);
+        captionRect.anchorMax = new Vector2(0f, 0.5f);
+        captionRect.pivot = new Vector2(0f, 0.5f);
+        captionRect.anchoredPosition = Vector2.zero;
+        captionRect.sizeDelta = new Vector2(110f, PartnerHeartSize);
+
+        GameObject iconObject = new GameObject("Icon", typeof(RectTransform), typeof(Image));
+        iconObject.transform.SetParent(row, false);
+        healIcon = iconObject.GetComponent<Image>();
+        healIcon.sprite = GetHeartSprite();
+        healIcon.raycastTarget = false;
+        RectTransform iconRect = healIcon.rectTransform;
+        iconRect.anchorMin = new Vector2(0f, 0.5f);
+        iconRect.anchorMax = new Vector2(0f, 0.5f);
+        iconRect.pivot = new Vector2(0.5f, 0.5f);
+        iconRect.anchoredPosition = new Vector2(110f + PartnerHeartSize * 0.5f, 0f);
+        iconRect.sizeDelta = new Vector2(PartnerHeartSize, PartnerHeartSize);
+
+        GameObject labelObject = new GameObject("Count", typeof(RectTransform), typeof(TextMeshProUGUI));
+        labelObject.transform.SetParent(row, false);
+        healLabel = labelObject.GetComponent<TextMeshProUGUI>();
+        UiTheme.ApplyFont(healLabel);
+        healLabel.fontSize = PartnerHeartSize * 0.6f;
+        healLabel.alignment = TextAlignmentOptions.Left;
+        healLabel.color = Color.white;
+        healLabel.raycastTarget = false;
+        RectTransform labelRect = healLabel.rectTransform;
+        labelRect.anchorMin = new Vector2(0f, 0.5f);
+        labelRect.anchorMax = new Vector2(0f, 0.5f);
+        labelRect.pivot = new Vector2(0f, 0.5f);
+        labelRect.anchoredPosition = new Vector2(110f + PartnerHeartSize + 10f, 0f);
+        labelRect.sizeDelta = new Vector2(380f, PartnerHeartSize);
     }
 
     private static void ApplyHearts(Image[] hearts, int count, int max)

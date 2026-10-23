@@ -274,7 +274,7 @@ public class LaserTrap : NetworkBehaviour
         if (generator != null)
         {
             Vector3 spawnPos = generator.GetSpawnWorldPosition(clientId);
-            spawnPos.y = respawnHeightOffset;
+            spawnPos.y += respawnHeightOffset;
             return spawnPos;
         }
 

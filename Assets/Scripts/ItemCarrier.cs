@@ -6,11 +6,11 @@ using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 /// <summary>
-/// Lets the local player pick up, carry, put down and throw items (CarryableItem: the cube, hearts):
+/// Lets the local player pick up, carry, put down and throw items (CarryableItem: the cube):
 ///   E near an item - pick it up (it floats above the head), sprint is off while carrying;
 ///   E again        - put it down in front;
 ///   left mouse     - throw it where the camera looks;
-///   F              - use it, for items that have a use (a heart restores one heart).
+///   F              - use it, for items that have a use (none at the moment; hearts go to the inventory, HeartsHud).
 /// Shows the matching hint on screen. Added at runtime to the local player, so the player prefab is not edited.
 /// </summary>
 public class ItemCarrier : MonoBehaviour

@@ -81,3 +81,12 @@ MonoBehaviour:
   - id: 19
     clip: {fileID: 8300000, guid: c1de1243a86a4bd5ae0116df32959809, type: 3}
     volume: 0.5
+  - id: 20
+    clip: {fileID: 8300000, guid: b22c98119bac4216b87f6c14849e8fb8, type: 3}
+    volume: 0.8
+  - id: 21
+    clip: {fileID: 8300000, guid: fe373a0fef19410f8b2e57a9bad026f6, type: 3}
+    volume: 0.8
+  - id: 22
+    clip: {fileID: 8300000, guid: ae80e3b15d2f4e2ba5b1f2d3754fc493, type: 3}
+    volume: 0.6

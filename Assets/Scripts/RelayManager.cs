@@ -909,7 +909,7 @@ BuildDisplaySettingsPanel();
     }
 
     /// <summary>Called on both players by DungeonProgressManager when a player has no hearts left.</summary>
-    public void ShowGameOver(bool localPlayerLost, int level)
+    public void ShowGameOver(bool localPlayerLost, int level, bool caughtByRobot = false)
     {
         gameOverOpen = true;
         pauseMenuOpen = false;
@@ -925,7 +925,9 @@ BuildDisplaySettingsPanel();
 
         if (gameOverInfoLabel != null)
         {
-            string who = localPlayerLost ? "You ran out of hearts" : "Your friend ran out of hearts";
+            string who = caughtByRobot
+                ? localPlayerLost ? "A robot caught you" : "A robot caught your friend"
+                : localPlayerLost ? "You ran out of hearts" : "Your friend ran out of hearts";
             gameOverInfoLabel.text = $"{who}\nReached level {level}";
         }
 

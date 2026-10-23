@@ -7,9 +7,27 @@ using Unity.Netcode;
 public class CaveDungeonGenerator : NetworkBehaviour
 {
     [Header("Размер лабиринта")]
-    public int width = 21;
-    public int height = 21;
-    public float cellSize = 2f;
+    public int width = 25;
+    public int height = 23;
+    [Tooltip("Ширина коридоров, м (клетки с нечётными координатами). Робот и игрок проходят рядом.")]
+    public float corridorWidth = 4f;
+    [Tooltip("Толщина стен, м (клетки с чётными координатами).")]
+    public float wallThickness = 2f;
+    [Tooltip("Под какой размер клетки сделаны префабы пола, стен, дверей и платформ (2 x 2 м).")]
+    [SerializeField] private float prefabCellSize = 2f;
+    [Tooltip("Высота префаба стены; стены становятся выше на высоту верхнего этажа.")]
+    [SerializeField] private float wallPrefabHeight = 6f;
+
+    [Header("Перепады высот")]
+    [Tooltip("Сколько этажей над нижним: 2 = коридоры на трёх высотах.")]
+    [SerializeField] private int maxFloorLevel = 2;
+    [SerializeField] private float floorLevelHeight = 1.2f;
+    [Tooltip("Шанс, что проход между двумя клетками станет пандусом вверх или вниз.")]
+    [Range(0f, 1f)] [SerializeField] private float rampChance = 0.35f;
+
+    [Header("Петли")]
+    [Tooltip("Доля стен между соседними коридорами, которые убираются, чтобы появились обходные пути.")]
+    [Range(0f, 1f)] [SerializeField] private float loopChance = 0.12f;
 
     [Header("Префабы")]
     public GameObject floorPrefab;
@@ -29,6 +47,18 @@ public class CaveDungeonGenerator : NetworkBehaviour
     public GameObject itemPortalPrefab;
     [Tooltip("Heart pickup. Empty = Resources/HealthPickup.")]
     public GameObject healthPickupPrefab;
+    [Tooltip("Patrolling robot. Empty = Resources/RobotEnemy.")]
+    public GameObject robotEnemyPrefab;
+    [Tooltip("Knife that knocks robots out. Empty = Resources/KnifePickup.")]
+    public GameObject knifePickupPrefab;
+
+    [Header("Роботы")]
+    [SerializeField] private int robotsPerSide = 1;
+    [Tooltip("Робот появляется не ближе этого расстояния (в клетках пути) к старту игрока.")]
+    [SerializeField] private int robotMinDistanceFromStart = 6;
+
+    [Header("Нож")]
+    [SerializeField] private int knivesPerSide = 1;
 
     [Header("Падающие платформы")]
     [SerializeField] private int fallingPlatformRowsPerSideMin = 2;
@@ -86,6 +116,14 @@ public class CaveDungeonGenerator : NetworkBehaviour
     private readonly Dictionary<ulong, float> lastFallRespawnTime = new Dictionary<ulong, float>();
 
     private int[,] map;
+
+    // Floor height of every walkable cell, in levels (floorLevelHeight each). A ramp connects two levels along one
+    // axis: rampNegLevel at its smaller-coordinate end, rampPosLevel at the other one.
+    private int[,] floorLevel;
+    private bool[,] isRamp;
+    private bool[,] rampAlongX;
+    private int[,] rampNegLevel;
+    private int[,] rampPosLevel;
 
     private Vector2Int startA;
     private Vector2Int startB;
@@ -196,7 +234,204 @@ public class CaveDungeonGenerator : NetworkBehaviour
         ConnectAnchorToSide(doorLeft, 1, cx - 1);
         ConnectAnchorToSide(doorRight, cx + 1, width - 2);
 
+        AssignFloorLevels();
+        AddLoops(false);
+        AddLoops(true);
+
         ChooseFallingPlatformCells();
+    }
+
+    // ================= HEIGHTS AND LOOPS =================
+
+    void AssignFloorLevels()
+    {
+        // The tree maze has no cycles, so heights spread from the doors never contradict each other. The corridor
+        // carved to a door can in rare cases close a cycle; then a few new tries, and a flat maze as the last resort.
+        for (int attempt = 0; attempt < 6; attempt++)
+        {
+            SpreadFloorLevels(attempt < 5 ? rampChance : 0f);
+            if (FloorLevelsConsistent())
+                return;
+        }
+    }
+
+    /// <summary>
+    /// Breadth-first from the doors and the exit (level 0) over the whole maze. Every straight passage between two
+    /// corridor cells may become a ramp one level up or down; everything after it continues at the new level.
+    /// </summary>
+    void SpreadFloorLevels(float chance)
+    {
+        floorLevel = new int[width, height];
+        isRamp = new bool[width, height];
+        rampAlongX = new bool[width, height];
+        rampNegLevel = new int[width, height];
+        rampPosLevel = new int[width, height];
+
+        int cx = width / 2;
+        int cy = height / 2;
+        bool[,] visited = new bool[width, height];
+        Queue<Vector2Int> queue = new Queue<Vector2Int>();
+
+        foreach (Vector2Int seed in new[] { new Vector2Int(cx, cy), new Vector2Int(cx - 1, cy), new Vector2Int(cx + 1, cy) })
+        {
+            visited[seed.x, seed.y] = true;
+            queue.Enqueue(seed);
+        }
+
+        int topLevel = Mathf.Max(0, maxFloorLevel);
+
+        while (queue.Count > 0)
+        {
+            Vector2Int current = queue.Dequeue();
+
+            foreach (Vector2Int direction in CardinalDirections)
+            {
+                Vector2Int next = current + direction;
+                if (!IsInside(next.x, next.y) || map[next.x, next.y] != 1 || visited[next.x, next.y])
+                    continue;
+
+                visited[next.x, next.y] = true;
+                queue.Enqueue(next);
+
+                int level = EdgeLevel(current, direction);
+                bool ramp = topLevel > 0 && Random.value < chance && CanBeRamp(next, direction, visited);
+
+                if (!ramp)
+                {
+                    floorLevel[next.x, next.y] = level;
+                    continue;
+                }
+
+                int target = level == 0 ? 1 : level == topLevel ? level - 1 : level + (Random.value < 0.5f ? 1 : -1);
+                bool positive = direction.x > 0 || direction.y > 0;
+
+                isRamp[next.x, next.y] = true;
+                rampAlongX[next.x, next.y] = direction.x != 0;
+                rampNegLevel[next.x, next.y] = positive ? level : target;
+                rampPosLevel[next.x, next.y] = positive ? target : level;
+                floorLevel[next.x, next.y] = Mathf.Min(level, target);
+            }
+        }
+    }
+
+    /// <summary>Level of a cell at its edge facing the given direction (differs from the other edge on a ramp).</summary>
+    int EdgeLevel(Vector2Int cell, Vector2Int direction)
+    {
+        if (!isRamp[cell.x, cell.y])
+            return floorLevel[cell.x, cell.y];
+
+        return direction.x > 0 || direction.y > 0 ? rampPosLevel[cell.x, cell.y] : rampNegLevel[cell.x, cell.y];
+    }
+
+    // A ramp is a passage between two corridor cells (thin wall slot along the way, corridor-wide across it),
+    // walls on both of its sides, and the cell after it not reached yet.
+    bool CanBeRamp(Vector2Int cell, Vector2Int direction, bool[,] visited)
+    {
+        bool alongX = direction.x != 0;
+        bool passage = alongX ? cell.x % 2 == 0 && cell.y % 2 == 1 : cell.y % 2 == 0 && cell.x % 2 == 1;
+        if (!passage)
+            return false;
+
+        Vector2Int after = cell + direction;
+        if (!IsInside(after.x, after.y) || map[after.x, after.y] != 1 || visited[after.x, after.y])
+            return false;
+
+        Vector2Int side = alongX ? Vector2Int.up : Vector2Int.right;
+        if (IsWalkableCell(cell + side) || IsWalkableCell(cell - side))
+            return false;
+
+        Vector2Int leftDoor = new Vector2Int(width / 2 - 1, height / 2);
+        Vector2Int rightDoor = new Vector2Int(width / 2 + 1, height / 2);
+        return after != leftDoor && after != rightDoor && after != startA && after != startB;
+    }
+
+    // Two walkable neighbours must meet at the same height, otherwise there is a cliff between them.
+    bool FloorLevelsConsistent()
+    {
+        for (int x = 1; x < width - 1; x++)
+        {
+            for (int y = 1; y < height - 1; y++)
+            {
+                if (map[x, y] != 1)
+                    continue;
+
+                Vector2Int cell = new Vector2Int(x, y);
+                foreach (Vector2Int direction in new[] { Vector2Int.right, Vector2Int.up })
+                {
+                    Vector2Int next = cell + direction;
+                    if (IsWalkableCell(next) && EdgeLevel(cell, direction) != EdgeLevel(next, -direction))
+                        return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Removes some walls between two corridor cells of one half, so there is more than one way around.
+    /// Cells at the same height get a flat passage, one level apart a ramp; farther apart the wall stays.
+    /// </summary>
+    void AddLoops(bool useRightSide)
+    {
+        if (loopChance <= 0f)
+            return;
+
+        int cx = width / 2;
+        int sideMin = useRightSide ? cx + 1 : 1;
+        int sideMax = useRightSide ? width - 2 : cx - 1;
+        Vector2Int leftDoor = new Vector2Int(cx - 1, height / 2);
+        Vector2Int rightDoor = new Vector2Int(cx + 1, height / 2);
+
+        for (int x = sideMin; x <= sideMax; x++)
+        {
+            for (int y = 1; y < height - 1; y++)
+            {
+                if (map[x, y] != 0)
+                    continue;
+
+                bool alongX = x % 2 == 0 && y % 2 == 1;
+                bool alongY = x % 2 == 1 && y % 2 == 0;
+                if (!alongX && !alongY)
+                    continue;
+
+                Vector2Int step = alongX ? Vector2Int.right : Vector2Int.up;
+                Vector2Int a = new Vector2Int(x, y) - step;
+                Vector2Int b = new Vector2Int(x, y) + step;
+
+                if (a.x < sideMin || b.x > sideMax || !IsWalkableCell(a) || !IsWalkableCell(b))
+                    continue;
+
+                if (a == leftDoor || a == rightDoor || b == leftDoor || b == rightDoor || isRamp[a.x, a.y] || isRamp[b.x, b.y])
+                    continue;
+
+                int levelA = floorLevel[a.x, a.y];
+                int levelB = floorLevel[b.x, b.y];
+                if (Mathf.Abs(levelA - levelB) > 1 || Random.value >= loopChance)
+                    continue;
+
+                map[x, y] = 1;
+                floorLevel[x, y] = Mathf.Min(levelA, levelB);
+
+                if (levelA != levelB)
+                {
+                    isRamp[x, y] = true;
+                    rampAlongX[x, y] = alongX;
+                    rampNegLevel[x, y] = levelA;
+                    rampPosLevel[x, y] = levelB;
+                }
+            }
+        }
+    }
+
+    bool IsWalkableCell(Vector2Int cell)
+    {
+        return IsInside(cell.x, cell.y) && map[cell.x, cell.y] == 1;
+    }
+
+    bool IsRampCell(Vector2Int cell)
+    {
+        return isRamp != null && cell.x >= 0 && cell.y >= 0 && cell.x < width && cell.y < height && isRamp[cell.x, cell.y];
     }
 
     // Maze cells are at odd coordinates, walls between them at even ones. The middle row (starts, doors, exit)
@@ -512,7 +747,7 @@ public class CaveDungeonGenerator : NetworkBehaviour
         if (map[cell.x, cell.y] != 1)
             return false;
 
-        if (cell == startA || cell == startB || cell == exitCell)
+        if (cell == startA || cell == startB || cell == exitCell || isRamp[cell.x, cell.y])
             return false;
 
         int centerX = width / 2;
@@ -533,23 +768,32 @@ public class CaveDungeonGenerator : NetworkBehaviour
         laserPlate = null;
         hasItemPortals = false;
 
+        // Walls are taller by the height of the top floor, so they stand as high above every corridor.
+        float wallTotalHeight = wallPrefabHeight + Mathf.Max(0, maxFloorLevel) * floorLevelHeight;
+
         for (int x = 0; x < width; x++)
         {
             for (int y = 0; y < height; y++)
             {
                 Vector3 pos = CellToWorld(x, y);
+                Vector3 cellScale = CellScale(x, y);
 
                 if (map[x, y] == 0)
                 {
-                    Spawn(wallPrefab, pos + Vector3.up * 3f);
+                    Vector3 wallScale = new Vector3(cellScale.x, wallTotalHeight / wallPrefabHeight, cellScale.z);
+                    Spawn(wallPrefab, new Vector3(pos.x, wallTotalHeight * 0.5f, pos.z), null, wallScale);
+                }
+                else if (isRamp[x, y])
+                {
+                    SpawnRamp(x, y);
                 }
                 else if (fallingPlatformCells.Contains(new Vector2Int(x, y)))
                 {
-                    Spawn(fallingPlatformPrefab, pos);
+                    Spawn(fallingPlatformPrefab, pos, null, cellScale);
                 }
                 else
                 {
-                    Spawn(floorPrefab, pos);
+                    Spawn(floorPrefab, pos, null, cellScale);
                 }
             }
 
@@ -564,8 +808,9 @@ public class CaveDungeonGenerator : NetworkBehaviour
         Vector2Int leftDoorCell = new Vector2Int(width / 2 - 1, height / 2);
         Vector2Int rightDoorCell = new Vector2Int(width / 2 + 1, height / 2);
 
-        GameObject leftDoorObj = Spawn(doorPrefab, CellToWorld(leftDoorCell) + Vector3.up * 1.5f);
-        GameObject rightDoorObj = Spawn(doorPrefab, CellToWorld(rightDoorCell) + Vector3.up * 1.5f);
+        // A door fills its whole (corridor-wide) cell.
+        GameObject leftDoorObj = Spawn(doorPrefab, CellToWorld(leftDoorCell) + Vector3.up * 1.5f, null, CellScale(leftDoorCell.x, leftDoorCell.y));
+        GameObject rightDoorObj = Spawn(doorPrefab, CellToWorld(rightDoorCell) + Vector3.up * 1.5f, null, CellScale(rightDoorCell.x, rightDoorCell.y));
 
         Door leftDoor = leftDoorObj.GetComponent<Door>();
         Door rightDoor = rightDoorObj.GetComponent<Door>();
@@ -665,7 +910,162 @@ public class CaveDungeonGenerator : NetworkBehaviour
         SpawnSpikeTraps(false);
         SpawnSpikeTraps(true);
 
+        SpawnKnives(false);
+        SpawnKnives(true);
+
+        SpawnRobots(false);
+        SpawnRobots(true);
+
         await Task.Yield();
+    }
+
+    // ================= ROBOTS AND KNIVES =================
+
+    /// <summary>Knives on random free cells of one half.</summary>
+    void SpawnKnives(bool useRightSide)
+    {
+        GameObject prefab = knifePickupPrefab != null ? knifePickupPrefab : Resources.Load<GameObject>("KnifePickup");
+        if (prefab == null)
+            return;
+
+        for (int i = 0; i < knivesPerSide; i++)
+        {
+            if (!TryTakeFreeCell(useRightSide, null, 3, out Vector2Int cell))
+                return;
+
+            Spawn(prefab, CellToWorld(cell));
+        }
+    }
+
+    /// <summary>
+    /// Robots patrolling one half: on cells a robot may walk on, far from the player's start
+    /// and not next to each other.
+    /// </summary>
+    void SpawnRobots(bool useRightSide)
+    {
+        GameObject prefab = robotEnemyPrefab != null ? robotEnemyPrefab : Resources.Load<GameObject>("RobotEnemy");
+        if (prefab == null)
+            return;
+
+        Vector2Int sideStart = useRightSide ? startB : startA;
+        Dictionary<Vector2Int, int> distances = new Dictionary<Vector2Int, int>();
+        Queue<Vector2Int> queue = new Queue<Vector2Int>();
+
+        // Walking distance from the start over the cells the robot may use.
+        distances[sideStart] = 0;
+        queue.Enqueue(sideStart);
+
+        while (queue.Count > 0)
+        {
+            Vector2Int current = queue.Dequeue();
+
+            foreach (Vector2Int direction in CardinalDirections)
+            {
+                Vector2Int next = current + direction;
+                if (distances.ContainsKey(next) || !IsRobotWalkable(next, useRightSide))
+                    continue;
+
+                distances[next] = distances[current] + 1;
+                queue.Enqueue(next);
+            }
+        }
+
+        List<Vector2Int> candidates = new List<Vector2Int>();
+        foreach (KeyValuePair<Vector2Int, int> pair in distances)
+        {
+            if (pair.Value >= robotMinDistanceFromStart && !reservedCells.Contains(pair.Key) && !IsRampCell(pair.Key))
+                candidates.Add(pair.Key);
+        }
+
+        // A small half: the farthest cells from the start.
+        if (candidates.Count == 0)
+        {
+            int farthest = 0;
+            foreach (int distance in distances.Values)
+                farthest = Mathf.Max(farthest, distance);
+
+            foreach (KeyValuePair<Vector2Int, int> pair in distances)
+            {
+                if (farthest > 0 && pair.Value == farthest)
+                    candidates.Add(pair.Key);
+            }
+        }
+
+        ShuffleList(candidates);
+        List<Vector2Int> placed = new List<Vector2Int>();
+
+        foreach (Vector2Int cell in candidates)
+        {
+            if (placed.Count >= robotsPerSide)
+                break;
+
+            bool nextToOther = false;
+            foreach (Vector2Int other in placed)
+            {
+                if (Mathf.Abs(cell.x - other.x) + Mathf.Abs(cell.y - other.y) < 4)
+                {
+                    nextToOther = true;
+                    break;
+                }
+            }
+
+            if (nextToOther)
+                continue;
+
+            GameObject robotObj = Spawn(prefab, CellToWorld(cell));
+            robotObj.transform.rotation = Quaternion.Euler(0f, 90f * Random.Range(0, 4), 0f);
+
+            RobotEnemy robot = robotObj.GetComponent<RobotEnemy>();
+            if (robot != null)
+                robot.ServerInit(this, useRightSide);
+            else
+                Debug.LogError("Robot enemy prefab must have a RobotEnemy component.");
+
+            placed.Add(cell);
+        }
+    }
+
+    /// <summary>Server: a cell the robot of one half may walk on (its half, no doors, no falling platforms).</summary>
+    public bool IsRobotWalkable(Vector2Int cell, bool useRightSide)
+    {
+        return map != null && IsSideWalkable(cell, useRightSide) && !fallingPlatformCells.Contains(cell);
+    }
+
+    /// <summary>Server: the position is in that half of the maze (the doorways and the exit belong to neither).</summary>
+    public bool IsOnSide(Vector3 position, bool useRightSide)
+    {
+        return map != null && IsSideWalkable(WorldToCell(position), useRightSide);
+    }
+
+    public Vector2Int WorldToCell(Vector3 position)
+    {
+        return new Vector2Int(WorldToAxisIndex(position.x), WorldToAxisIndex(position.z));
+    }
+
+    /// <summary>Center of a cell, standing on its floor (the middle of a ramp).</summary>
+    public Vector3 GetCellWorldPosition(Vector2Int cell)
+    {
+        return CellToWorld(cell);
+    }
+
+    /// <summary>Height of the floor under a point: the level of its cell, on a ramp the slope under it.</summary>
+    public float GetFloorHeight(Vector3 position)
+    {
+        Vector2Int cell = WorldToCell(position);
+        if (map == null || floorLevel == null || cell.x < 0 || cell.y < 0 || cell.x >= width || cell.y >= height ||
+            map[cell.x, cell.y] != 1)
+        {
+            return 0f;
+        }
+
+        if (!isRamp[cell.x, cell.y])
+            return floorLevel[cell.x, cell.y] * floorLevelHeight;
+
+        bool alongX = rampAlongX[cell.x, cell.y];
+        int index = alongX ? cell.x : cell.y;
+        float coordinate = alongX ? position.x : position.z;
+        float t = Mathf.Clamp01((coordinate - (AxisCenter(index) - AxisSize(index) * 0.5f)) / AxisSize(index));
+        return Mathf.Lerp(rampNegLevel[cell.x, cell.y], rampPosLevel[cell.x, cell.y], t) * floorLevelHeight;
     }
 
     /// <summary>
@@ -685,6 +1085,10 @@ public class CaveDungeonGenerator : NetworkBehaviour
         foreach (Vector2Int cell in reachable)
         {
             if (reservedCells.Contains(cell) || fallingPlatformCells.Contains(cell) || cell == exitCell)
+                continue;
+
+            // Square corridor cells only (not the thin passages and ramps between them): the trap covers the whole cell.
+            if (cell.x % 2 == 0 || cell.y % 2 == 0)
                 continue;
 
             if (Mathf.Abs(cell.x - sideStart.x) + Mathf.Abs(cell.y - sideStart.y) < spikeMinDistanceFromStart)
@@ -722,7 +1126,9 @@ public class CaveDungeonGenerator : NetworkBehaviour
             if (nextToOther)
                 continue;
 
-            GameObject trapObj = Spawn(prefab, CellToWorld(cell) + Vector3.up * spikeHeightOffset);
+            Vector3 trapScale = CellScale(cell.x, cell.y);
+            trapScale.y = 1f;
+            GameObject trapObj = Spawn(prefab, CellToWorld(cell) + Vector3.up * spikeHeightOffset, null, trapScale);
             SpikeTrap trap = trapObj.GetComponent<SpikeTrap>();
             if (trap != null)
                 trap.SetPhaseOffset(Random.Range(0f, 3f));
@@ -756,7 +1162,8 @@ public class CaveDungeonGenerator : NetworkBehaviour
         Vector2Int protectedCell = blockLeftSide ? leftKeyCell : rightKeyCell;
         Vector2Int switchCell = blockLeftSide ? rightPlateCell : leftPlateCell;
 
-        if (!TryGetDeadEndEntry(protectedCell, out Vector2Int entryCell))
+        // The barrier stands on a flat floor; a dead end entered over a ramp gets no laser.
+        if (!TryGetDeadEndEntry(protectedCell, out Vector2Int entryCell) || IsRampCell(entryCell))
             return;
 
         reservedCells.Add(entryCell);
@@ -770,7 +1177,7 @@ public class CaveDungeonGenerator : NetworkBehaviour
             return;
 
         Vector3 laserPosition = CellToWorld(entryCell);
-        laserPosition.y = laserBottomHeightOffset;
+        laserPosition.y += laserBottomHeightOffset;
 
         Vector3 laserDirection = CellDirectionToWorld(laserBeamDirection).normalized;
 
@@ -897,6 +1304,7 @@ public class CaveDungeonGenerator : NetworkBehaviour
 
         bool IsFree(Vector2Int candidate) =>
             !reservedCells.Contains(candidate) && !fallingPlatformCells.Contains(candidate) && candidate != exitCell &&
+            !IsRampCell(candidate) &&
             Mathf.Abs(candidate.x - sideStart.x) + Mathf.Abs(candidate.y - sideStart.y) >= minDistanceFromStart;
 
         if (preferredDeadEnds != null)
@@ -979,7 +1387,8 @@ public class CaveDungeonGenerator : NetworkBehaviour
             {
                 Vector2Int next = current + direction;
 
-                if (distances.ContainsKey(next) || !IsSideWalkable(next, useRightSide) || fallingPlatformCells.Contains(next))
+                if (distances.ContainsKey(next) || !IsSideWalkable(next, useRightSide) || fallingPlatformCells.Contains(next) ||
+                    IsRampCell(next))
                     continue;
 
                 distances[next] = distances[current] + 1;
@@ -1153,10 +1562,12 @@ public class CaveDungeonGenerator : NetworkBehaviour
         Vector2Int negativeCell = FindLastWalkableCell(originCell, -beamDirection);
         Vector2Int positiveCell = FindLastWalkableCell(originCell, beamDirection);
         Vector3 worldDirection = CellDirectionToWorld(beamDirection).normalized;
-        float edgeOffset = Mathf.Max(0f, cellSize * 0.5f - laserWallPadding);
+        bool beamAlongX = beamDirection.x != 0;
+        float negativeEdge = Mathf.Max(0f, AxisSize(beamAlongX ? negativeCell.x : negativeCell.y) * 0.5f - laserWallPadding);
+        float positiveEdge = Mathf.Max(0f, AxisSize(beamAlongX ? positiveCell.x : positiveCell.y) * 0.5f - laserWallPadding);
 
-        segmentStart = CellToWorld(negativeCell) - worldDirection * edgeOffset;
-        segmentEnd = CellToWorld(positiveCell) + worldDirection * edgeOffset;
+        segmentStart = CellToWorld(negativeCell) - worldDirection * negativeEdge;
+        segmentEnd = CellToWorld(positiveCell) + worldDirection * positiveEdge;
         float floorY = CellToWorld(originCell).y;
         segmentStart.y = floorY + laserBottomHeightOffset;
         segmentEnd.y = floorY + laserBottomHeightOffset;
@@ -1243,7 +1654,7 @@ public class CaveDungeonGenerator : NetworkBehaviour
 
         Vector2Int spawnCell = GetSpawnCell(clientId);
         Vector3 spawnPos = CellToWorld(spawnCell);
-        spawnPos.y = playerHeightOffset;
+        spawnPos.y += playerHeightOffset;
 
         player.transform.position = spawnPos;
 
@@ -1286,7 +1697,7 @@ public class CaveDungeonGenerator : NetworkBehaviour
             DungeonProgressManager.Instance.DamagePlayer(clientId);
 
         Vector3 spawnPos = CellToWorld(GetSpawnCell(clientId));
-        spawnPos.y = playerHeightOffset;
+        spawnPos.y += playerHeightOffset;
 
         player.transform.position = spawnPos;
 
@@ -1358,20 +1769,73 @@ public class CaveDungeonGenerator : NetworkBehaviour
 
     // ================= UTILS =================
 
+    // The grid is not uniform: odd rows and columns are corridors (corridorWidth), even ones walls (wallThickness).
+    // A corridor cell is corridorWidth x corridorWidth, the passage between two of them wallThickness long.
+
+    float AxisSize(int index)
+    {
+        return index % 2 == 1 ? corridorWidth : wallThickness;
+    }
+
+    float AxisCenter(int index)
+    {
+        int walls = (index + 1) / 2;
+        int corridors = index / 2;
+        return walls * wallThickness + corridors * corridorWidth + AxisSize(index) * 0.5f;
+    }
+
+    int WorldToAxisIndex(float coordinate)
+    {
+        float period = wallThickness + corridorWidth;
+        int pair = Mathf.FloorToInt(coordinate / period);
+        float rest = coordinate - pair * period;
+        return pair * 2 + (rest < wallThickness ? 0 : 1);
+    }
+
+    /// <summary>Center of a cell on its floor: walls and walkable cells at their level, a ramp at its middle.</summary>
     Vector3 CellToWorld(int x, int y)
     {
-        return new Vector3(x * cellSize, 0, y * cellSize);
+        return new Vector3(AxisCenter(x), CellFloorHeight(x, y), AxisCenter(y));
     }
 
     Vector3 CellToWorld(Vector2Int cell)
     {
-        return new Vector3(cell.x * cellSize, 0, cell.y * cellSize);
+        return CellToWorld(cell.x, cell.y);
     }
 
-    Vector3 CellCenterToWorld(Vector2Int cell)
+    float CellFloorHeight(int x, int y)
     {
-        float halfCell = cellSize * 0.5f;
-        return new Vector3(cell.x * cellSize + halfCell, 0f, cell.y * cellSize + halfCell);
+        if (map == null || floorLevel == null || x < 0 || y < 0 || x >= width || y >= height || map[x, y] != 1)
+            return 0f;
+
+        if (isRamp[x, y])
+            return (rampNegLevel[x, y] + rampPosLevel[x, y]) * 0.5f * floorLevelHeight;
+
+        return floorLevel[x, y] * floorLevelHeight;
+    }
+
+    /// <summary>Scale multiplier that stretches a prefab made for a prefabCellSize square to this cell.</summary>
+    Vector3 CellScale(int x, int y)
+    {
+        return new Vector3(AxisSize(x) / prefabCellSize, 1f, AxisSize(y) / prefabCellSize);
+    }
+
+    /// <summary>A floor tile tilted from one level to the other, as long as the slope and as wide as the corridor.</summary>
+    void SpawnRamp(int x, int y)
+    {
+        bool alongX = rampAlongX[x, y];
+        float run = AxisSize(alongX ? x : y);
+        float rise = (rampPosLevel[x, y] - rampNegLevel[x, y]) * floorLevelHeight;
+        float length = Mathf.Sqrt(run * run + rise * rise);
+        float angle = Mathf.Atan2(rise, run) * Mathf.Rad2Deg;
+
+        // Euler Z lifts the +X end, Euler -X lifts the +Z end.
+        Quaternion rotation = alongX ? Quaternion.Euler(0f, 0f, angle) : Quaternion.Euler(-angle, 0f, 0f);
+        Vector3 scale = alongX
+            ? new Vector3(length / prefabCellSize, 1f, AxisSize(y) / prefabCellSize)
+            : new Vector3(AxisSize(x) / prefabCellSize, 1f, length / prefabCellSize);
+
+        Spawn(floorPrefab, CellToWorld(x, y), rotation, scale);
     }
 
     Vector3 CellDirectionToWorld(Vector2Int direction)
@@ -1379,9 +1843,13 @@ public class CaveDungeonGenerator : NetworkBehaviour
         return new Vector3(direction.x, 0f, direction.y);
     }
 
-    GameObject Spawn(GameObject prefab, Vector3 pos)
+    GameObject Spawn(GameObject prefab, Vector3 pos, Quaternion? rotation = null, Vector3? scaleMultiplier = null)
     {
-        var obj = Instantiate(prefab, pos, Quaternion.identity);
+        var obj = Instantiate(prefab, pos, rotation ?? Quaternion.identity);
+
+        // Before Spawn: the scale is sent to the clients with the spawn.
+        if (scaleMultiplier.HasValue)
+            obj.transform.localScale = Vector3.Scale(obj.transform.localScale, scaleMultiplier.Value);
 
         var netObj = obj.GetComponent<NetworkObject>();
         if (netObj != null && !netObj.IsSpawned)

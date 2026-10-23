@@ -18,8 +18,8 @@ public class DungeonProgressManager : NetworkBehaviour
     [Header("Level Progression")]
     [SerializeField] private int widthIncreasePerLevel = 4;
     [SerializeField] private int heightIncreasePerLevel = 4;
-    [SerializeField] private int maxWidth = 0;
-    [SerializeField] private int maxHeight = 0;
+    [SerializeField] private int maxWidth = 49;
+    [SerializeField] private int maxHeight = 47;
     
     [Header("Feedback")]
     [SerializeField] private GameObject victoryEffectPrefab;
@@ -34,20 +34,24 @@ public class DungeonProgressManager : NetworkBehaviour
     [SerializeField] private int maxHearts = 3;
     [Tooltip("After losing a heart the player cannot lose another one for this many seconds.")]
     [SerializeField] private float damageCooldown = 2f;
+    [Tooltip("How many heart pickups a player can keep in the inventory (used with F).")]
+    [SerializeField] private int maxStoredHeals = 3;
 
-    /// <summary>Hearts of one player, kept by the server and synced to both players.</summary>
+    /// <summary>Hearts and stored heals of one player, kept by the server and synced to both players.</summary>
     public struct PlayerHearts : INetworkSerializable, System.IEquatable<PlayerHearts>
     {
         public ulong ClientId;
         public int Hearts;
+        public int Heals;
 
         public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
         {
             serializer.SerializeValue(ref ClientId);
             serializer.SerializeValue(ref Hearts);
+            serializer.SerializeValue(ref Heals);
         }
 
-        public bool Equals(PlayerHearts other) => ClientId == other.ClientId && Hearts == other.Hearts;
+        public bool Equals(PlayerHearts other) => ClientId == other.ClientId && Hearts == other.Hearts && Heals == other.Heals;
     }
 
     private NetworkList<PlayerHearts> playerHearts;
@@ -61,6 +65,13 @@ public class DungeonProgressManager : NetworkBehaviour
     // The player who lost the last heart.
     private NetworkVariable<ulong> gameOverPlayer = new NetworkVariable<ulong>(
         0,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    // The game ended because a robot caught a player (not because the hearts ran out).
+    private NetworkVariable<bool> caughtByRobot = new NetworkVariable<bool>(
+        false,
         NetworkVariableReadPermission.Everyone,
         NetworkVariableWritePermission.Server
     );
@@ -128,6 +139,7 @@ public class DungeonProgressManager : NetworkBehaviour
         }
 
         gameOver.OnValueChanged += OnGameOverChanged;
+        caughtByRobot.OnValueChanged += OnCaughtByRobotChanged;
         HeartsHud.EnsureCreated();
 
         playersAtEnd.OnValueChanged += OnPlayersAtEndChanged;
@@ -156,6 +168,7 @@ public class DungeonProgressManager : NetworkBehaviour
         currentLevel.OnValueChanged -= OnCurrentLevelChanged;
         lastCompletionTime.OnValueChanged -= OnLastCompletionTimeChanged;
         gameOver.OnValueChanged -= OnGameOverChanged;
+        caughtByRobot.OnValueChanged -= OnCaughtByRobotChanged;
 
         if (Instance == this)
             Instance = null;
@@ -457,6 +470,32 @@ public class DungeonProgressManager : NetworkBehaviour
         if (entry.Hearts > 0)
             return true;
 
+        SetGameOver(clientId, false);
+        return true;
+    }
+
+    /// <summary>
+    /// Server: a robot caught the player. Both players lose at once, however many hearts are left.
+    /// Returns false when the game is already over or the level is finished.
+    /// </summary>
+    public bool KillPlayer(ulong clientId)
+    {
+        if (!IsServer || gameOver.Value || levelCompleted.Value || restarting)
+            return false;
+
+        EnsureHearts(clientId);
+        int index = FindHeartsIndex(clientId);
+        PlayerHearts entry = playerHearts[index];
+        entry.Hearts = 0;
+        playerHearts[index] = entry;
+
+        SetGameOver(clientId, true);
+        return true;
+    }
+
+    private void SetGameOver(ulong clientId, bool byRobot)
+    {
+        caughtByRobot.Value = byRobot;
         gameOverPlayer.Value = clientId;
         gameOver.Value = true;
 
@@ -465,8 +504,6 @@ public class DungeonProgressManager : NetworkBehaviour
             StopCoroutine(nextLevelCoroutine);
             nextLevelCoroutine = null;
         }
-
-        return true;
     }
 
     /// <summary>Server: a heart pickup was used. Adds one heart; false when the player already has all hearts.</summary>
@@ -485,6 +522,62 @@ public class DungeonProgressManager : NetworkBehaviour
         entry.Hearts++;
         playerHearts[index] = entry;
         return true;
+    }
+
+    // ================= STORED HEALS =================
+
+    public int MaxStoredHeals => maxStoredHeals;
+
+    /// <summary>Heart pickups the player keeps in the inventory.</summary>
+    public int GetHeals(ulong clientId)
+    {
+        int index = FindHeartsIndex(clientId);
+        return index >= 0 ? playerHearts[index].Heals : 0;
+    }
+
+    /// <summary>Server: the player picked up a heart. False when the inventory is full (the pickup stays on the floor).</summary>
+    public bool AddHeal(ulong clientId)
+    {
+        if (!IsServer || gameOver.Value)
+            return false;
+
+        EnsureHearts(clientId);
+        int index = FindHeartsIndex(clientId);
+        PlayerHearts entry = playerHearts[index];
+
+        if (entry.Heals >= maxStoredHeals)
+            return false;
+
+        entry.Heals++;
+        playerHearts[index] = entry;
+        return true;
+    }
+
+    /// <summary>The local player pressed F: use one stored heal (HeartsHud checks the hearts are not full).</summary>
+    public void RequestUseHeal()
+    {
+        UseHealRpc();
+    }
+
+    [Rpc(SendTo.Server)]
+    private void UseHealRpc(RpcParams rpcParams = default)
+    {
+        ulong senderId = rpcParams.Receive.SenderClientId;
+        int index = FindHeartsIndex(senderId);
+        if (index < 0 || playerHearts[index].Heals <= 0 || !HealPlayer(senderId))
+            return;
+
+        PlayerHearts entry = playerHearts[index];
+        entry.Heals--;
+        playerHearts[index] = entry;
+
+        HealUsedRpc(RpcTarget.Single(senderId, RpcTargetUse.Temp));
+    }
+
+    [Rpc(SendTo.SpecifiedInParams)]
+    private void HealUsedRpc(RpcParams rpcParams)
+    {
+        AudioManager.Play(Sfx.Heal);
     }
 
     /// <summary>Restart button on the game over screen (either player).</summary>
@@ -509,6 +602,7 @@ public class DungeonProgressManager : NetworkBehaviour
         {
             PlayerHearts entry = playerHearts[i];
             entry.Hearts = maxHearts;
+            entry.Heals = 0;
             playerHearts[i] = entry;
         }
 
@@ -546,12 +640,23 @@ public class DungeonProgressManager : NetworkBehaviour
             AudioManager.Play(Sfx.GameOver);
 
             if (relayManager != null)
-                relayManager.ShowGameOver(DidLocalPlayerLose(), currentLevel.Value);
+                relayManager.ShowGameOver(DidLocalPlayerLose(), currentLevel.Value, caughtByRobot.Value);
         }
         else if (relayManager != null)
         {
             relayManager.HideGameOver();
         }
+    }
+
+    // The reason can arrive after the game over itself: refresh the text on the game over screen.
+    private void OnCaughtByRobotChanged(bool oldValue, bool newValue)
+    {
+        if (!gameOver.Value)
+            return;
+
+        RelayManager relayManager = FindObjectOfType<RelayManager>();
+        if (relayManager != null)
+            relayManager.ShowGameOver(DidLocalPlayerLose(), currentLevel.Value, newValue);
     }
     
     void UpdateUI()

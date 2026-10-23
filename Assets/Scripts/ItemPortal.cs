@@ -2,7 +2,7 @@ using Unity.Netcode;
 using UnityEngine;
 
 /// <summary>
-/// Item portal: one on each half of the maze, linked in a pair by CaveDungeonGenerator. An item (cube, heart) that is
+/// Item portal: one on each half of the maze, linked in a pair by CaveDungeonGenerator. An item (the cube) that is
 /// put down or lands on a portal comes out of the other one. Players walk over portals without being moved -
 /// the halves stay separate, only items can be passed.
 ///

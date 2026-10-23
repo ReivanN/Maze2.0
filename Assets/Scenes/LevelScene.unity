@@ -641,9 +641,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CaveDungeonGenerator
   ShowTopMostFoldoutHeaderGroup: 1
-  width: 15
-  height: 16
-  cellSize: 2
+  width: 25
+  height: 23
+  corridorWidth: 4
+  wallThickness: 2
   floorPrefab: {fileID: 3315031923594135049, guid: 91bde423f7d634f078d211af69d7c60a, type: 3}
   wallPrefab: {fileID: 2274982741432568134, guid: 1703cce7cfc674d2cb4215d79b29e4c2, type: 3}
   startPrefab: {fileID: 1576681098984066033, guid: a255e651e93814629abb19b558ee2d00, type: 3}
@@ -768,8 +769,8 @@ MonoBehaviour:
   endZoneRadius: 1
   widthIncreasePerLevel: 4
   heightIncreasePerLevel: 4
-  maxWidth: 0
-  maxHeight: 0
+  maxWidth: 49
+  maxHeight: 47
   victoryEffectPrefab: {fileID: 0}
   victorySound: {fileID: 0}
   endPointActiveMaterial: {fileID: 0}

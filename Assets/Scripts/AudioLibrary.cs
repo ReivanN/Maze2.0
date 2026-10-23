@@ -21,7 +21,10 @@ public enum Sfx
     SpikeHit,
     PortalTeleport,
     Heal,
-    KeyPickup
+    KeyPickup,
+    RobotAlert,
+    RobotStunned,
+    KnifeSwing
 }
 
 /// <summary>

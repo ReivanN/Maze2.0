@@ -303,6 +303,9 @@ public class LevelMutatorManager : NetworkBehaviour
         appliedMutator = type;
         AudioManager.SetDarknessMusic(type == LevelMutatorType.FogAndDarkness);
 
+        // Ice is not only slippery: the floor is visibly covered with it.
+        LowPolyTile.SetIce(type == LevelMutatorType.Ice);
+
         if (type == LevelMutatorType.FogAndDarkness)
             EnterDarkness();
 

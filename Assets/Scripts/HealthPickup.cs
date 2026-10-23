@@ -2,13 +2,16 @@ using Unity.Netcode;
 using UnityEngine;
 
 /// <summary>
-/// A heart lying in the maze (one per half, spawned by CaveDungeonGenerator). It is carried like the cube, so it can be
-/// sent to the other player through the item portal; F while carrying it restores one heart and uses it up.
-/// The model is built in code (a red orb with a white cross), so no art asset is needed.
+/// A heart lying in the maze (one per half, spawned by CaveDungeonGenerator). A player who walks over it puts it into
+/// the inventory (DungeonProgressManager keeps the count, HeartsHud shows it); F uses one and restores a heart.
+/// With a full inventory the heart stays on the floor. The model is built in code (a red orb with a white cross).
 /// </summary>
 [RequireComponent(typeof(SphereCollider))]
-public class HealthPickup : CarryableItem
+public class HealthPickup : NetworkBehaviour
 {
+    [Header("Pick up")]
+    [SerializeField] private float pickUpRadius = 1.1f;
+
     [Header("Visual")]
     [SerializeField] private Material orbMaterial;
     [SerializeField] private Material crossMaterial;
@@ -16,63 +19,65 @@ public class HealthPickup : CarryableItem
     [SerializeField] private float bobHeight = 0.08f;
 
     private Transform visual;
+    private bool pickedUp;
 
-    public override string DisplayName => "heart";
-    public override bool HasUseAction => true;
-
-    protected override void Awake()
+    private void Awake()
     {
-        base.Awake();
+        // It used to be carried like the cube; now nothing pushes against it and it never falls.
+        GetComponent<SphereCollider>().isTrigger = true;
+
+        if (TryGetComponent(out Rigidbody body))
+        {
+            body.isKinematic = true;
+            body.useGravity = false;
+        }
+
         CreateVisual();
     }
 
-    protected override void Update()
+    private void Update()
     {
-        base.Update();
-
         // Only the child model moves; the networked root stays where the item really is.
         if (visual != null)
         {
             visual.localRotation = Quaternion.Euler(0f, Time.time * spinSpeed, 0f);
             visual.localPosition = Vector3.up * (Mathf.Sin(Time.time * 2.5f) * bobHeight);
         }
+
+        if (IsServer && IsSpawned && !pickedUp)
+            TryGiveToPlayer();
     }
 
-    public override bool TryUse(out string refusal)
+    private void TryGiveToPlayer()
     {
-        refusal = null;
         DungeonProgressManager manager = DungeonProgressManager.Instance;
-
-        if (!IsCarriedByLocalPlayer || manager == null || NetworkManager == null)
-            return false;
-
-        if (manager.GetHearts(NetworkManager.LocalClientId) >= manager.MaxHearts)
-        {
-            refusal = "Your hearts are full - pass it to your friend";
-            return false;
-        }
-
-        UseRpc();
-        return true;
-    }
-
-    [Rpc(SendTo.Server)]
-    private void UseRpc(RpcParams rpcParams = default)
-    {
-        ulong senderId = rpcParams.Receive.SenderClientId;
-        DungeonProgressManager manager = DungeonProgressManager.Instance;
-
-        if (!IsSpawned || manager == null || !manager.HealPlayer(senderId))
+        if (manager == null)
             return;
 
-        HealedRpc(RpcTarget.Single(senderId, RpcTargetUse.Temp));
-        NetworkObject.Despawn();
+        foreach (NetworkClient client in NetworkManager.ConnectedClientsList)
+        {
+            NetworkObject player = client.PlayerObject;
+            if (player == null)
+                continue;
+
+            Vector3 offset = player.transform.position - transform.position;
+            if (Mathf.Abs(offset.y) > 1.6f || new Vector2(offset.x, offset.z).magnitude > pickUpRadius)
+                continue;
+
+            if (!manager.AddHeal(client.ClientId))
+                continue;
+
+            pickedUp = true;
+            PickedUpRpc(RpcTarget.Single(client.ClientId, RpcTargetUse.Temp));
+            NetworkObject.Despawn();
+            return;
+        }
     }
 
     [Rpc(SendTo.SpecifiedInParams)]
-    private void HealedRpc(RpcParams rpcParams)
+    private void PickedUpRpc(RpcParams rpcParams)
     {
-        AudioManager.Play(Sfx.Heal);
+        AudioManager.Play(Sfx.KeyPickup);
     }
 
     private void CreateVisual()
