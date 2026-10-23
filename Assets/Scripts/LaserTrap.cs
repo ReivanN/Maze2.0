@@ -292,6 +292,7 @@ public class LaserTrap : NetworkBehaviour
         }
 
         AudioManager.Play(Sfx.LaserHit);
+        DamageVignette.Flash();
 
         Transform playerTransform = NetworkManager.Singleton.LocalClient.PlayerObject.transform;
         CharacterController characterController = playerTransform.GetComponent<CharacterController>();

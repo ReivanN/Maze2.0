@@ -79,6 +79,8 @@ public abstract class CarryableItem : NetworkBehaviour
     public ItemPortal PortalImmunity { get; set; }
 
     public bool IsCarried => carrierId.Value != NoCarrier;
+    /// <summary>Client id of the player holding the item, NoCarrier when it lies free (synced to everyone).</summary>
+    public ulong CarrierId => carrierId.Value;
     public bool IsCarriedByLocalPlayer => carriedLocally;
     public bool IsFree => IsSpawned && !IsCarried && !IsFrozen;
     public bool CanBePickedUp => IsFree && Time.time - pickUpRequestTime > PickUpRequestTimeout;

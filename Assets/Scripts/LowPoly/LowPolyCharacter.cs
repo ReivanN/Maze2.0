@@ -24,6 +24,9 @@ public class LowPolyCharacter : MonoBehaviour
     // Gear submeshes.
     private const int Leather = 0, DarkLeather = 1, Pants = 2, Face = 3, Eyes = 4, Steel = 5;
 
+    // Extra bones created under the head for the face (see AddFaceBone).
+    public const string LeftEyeBone = "Left_Eye", RightEyeBone = "Right_Eye", MouthBone = "Mouth";
+
     private readonly Dictionary<string, Transform> boneByName = new Dictionary<string, Transform>();
     private readonly List<Transform> bones = new List<Transform>();
     private Transform holder;
@@ -86,6 +89,12 @@ public class LowPolyCharacter : MonoBehaviour
         playerColor = GetComponent<NetworkPlayerColor>();
         if (playerColor != null)
             playerColor.ColorApplied += ApplyPlayerColor;
+
+        // Blinking and faces, and the arms going up when the knight carries an item.
+        KnightAnimations animations = gameObject.AddComponent<KnightAnimations>();
+        animations.Setup(boneByName[LeftEyeBone], boneByName[RightEyeBone], boneByName[MouthBone],
+            boneByName["Left_UpperArm"], boneByName["Left_LowerArm"], boneByName["Left_Hand"],
+            boneByName["Right_UpperArm"], boneByName["Right_LowerArm"], boneByName["Right_Hand"]);
     }
 
     private void OnDestroy()
@@ -250,10 +259,36 @@ public class LowPolyCharacter : MonoBehaviour
         Segment(gear, Face, c + new Vector3(0f, -0.1f, 0.12f), c + new Vector3(0f, 0.07f, 0.12f),
             new Vector2(0.08f, 0.05f), new Vector2(0.07f, 0.05f), 4);
         float z = 0.12f + 0.05f + 0.004f;
+
+        // Each eye and the mouth hang on their own small bone under the head, so KnightAnimations can blink and
+        // make faces by scaling and tilting them.
+        Vector3 leftEye = c + new Vector3(-0.035f, 0.005f, z);
+        Vector3 rightEye = c + new Vector3(0.035f, 0.005f, z);
+        Vector3 mouth = c + new Vector3(0f, -0.055f, z);
+        AddFaceBone(LeftEyeBone, leftEye);
+        AddFaceBone(RightEyeBone, rightEye);
+        AddFaceBone(MouthBone, mouth);
+
+        Bind(LeftEyeBone);
         Segment(gear, Eyes, c + new Vector3(-0.055f, 0.01f, z), c + new Vector3(-0.015f, 0f, z),
             new Vector2(0.008f, 0.003f), new Vector2(0.006f, 0.003f), 4);
+        Bind(RightEyeBone);
         Segment(gear, Eyes, c + new Vector3(0.055f, 0.01f, z), c + new Vector3(0.015f, 0f, z),
             new Vector2(0.008f, 0.003f), new Vector2(0.006f, 0.003f), 4);
+
+        // A thin glowing mouth, hidden (scaled to zero) until an expression needs it.
+        Bind(MouthBone);
+        Segment(gear, Eyes, mouth + new Vector3(-0.022f, 0f, 0f), mouth + new Vector3(0.022f, 0f, 0f),
+            new Vector2(0.004f, 0.003f), new Vector2(0.004f, 0.003f), 4);
+    }
+
+    /// <summary>A helper bone under the head at <paramref name="position"/> (character space), axes like the character.</summary>
+    private void AddFaceBone(string boneName, Vector3 position)
+    {
+        Transform bone = new GameObject(boneName).transform;
+        bone.SetParent(boneByName["Head"], false);
+        bone.SetPositionAndRotation(holder.TransformPoint(position), holder.rotation);
+        boneByName[boneName] = bone;
     }
 
     private void BuildArm(string side)

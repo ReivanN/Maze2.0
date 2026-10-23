@@ -1321,6 +1321,7 @@ public class CaveDungeonGenerator : NetworkBehaviour
     void FallRespawnClientRpc(Vector3 spawnPos, ClientRpcParams clientRpcParams = default)
     {
         AudioManager.Play(Sfx.FallRespawn);
+        DamageVignette.Flash();
         StartCoroutine(TeleportLocalPlayerWhenReady(spawnPos));
     }
 

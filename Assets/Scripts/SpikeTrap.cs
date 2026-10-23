@@ -151,6 +151,7 @@ public class SpikeTrap : NetworkBehaviour
     private void SpikeHitRpc(RpcParams rpcParams)
     {
         AudioManager.Play(Sfx.SpikeHit);
+        DamageVignette.Flash();
     }
 
     private void CreateVisual()
